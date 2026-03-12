@@ -1,3 +1,2 @@
-2026/03/12-18:12:31.654 2a6845c Reusing MANIFEST /Users/jan/Library/Application Support/dev.xe.darc/profiles/default/Default/Storage/ext/iOl0pHp6oV7jngsFpKgrUzSjpxZlkph+OKi3dsITtb7A=/def/Platform Notifications/MANIFEST-000001
-2026/03/12-18:12:31.654 2a6845c Recovering log #3
-2026/03/12-18:12:31.654 2a6845c Reusing old log /Users/jan/Library/Application Support/dev.xe.darc/profiles/default/Default/Storage/ext/iOl0pHp6oV7jngsFpKgrUzSjpxZlkph+OKi3dsITtb7A=/def/Platform Notifications/000003.log 
+2026/03/13-01:22:31.596 62079 Creating DB /Users/jan/Library/Application Support/dev.xe.darc/profiles/default/Default/Storage/ext/iOl0pHp6oV7jngsFpKgrUzSjpxZlkph+OKi3dsITtb7A=/def/Platform Notifications since it was missing.
+2026/03/13-01:22:31.607 62079 Reusing MANIFEST /Users/jan/Library/Application Support/dev.xe.darc/profiles/default/Default/Storage/ext/iOl0pHp6oV7jngsFpKgrUzSjpxZlkph+OKi3dsITtb7A=/def/Platform Notifications/MANIFEST-000001

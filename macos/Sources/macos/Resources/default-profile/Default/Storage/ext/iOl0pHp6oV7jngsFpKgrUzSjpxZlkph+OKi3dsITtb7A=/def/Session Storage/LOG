@@ -1,3 +1,2 @@
-2026/03/12-18:12:44.511 2a6aa2d Reusing MANIFEST /Users/jan/Library/Application Support/dev.xe.darc/profiles/default/Default/Storage/ext/iOl0pHp6oV7jngsFpKgrUzSjpxZlkph+OKi3dsITtb7A=/def/Session Storage/MANIFEST-000001
-2026/03/12-18:12:44.514 2a6aa2d Recovering log #3
-2026/03/12-18:12:44.514 2a6aa2d Reusing old log /Users/jan/Library/Application Support/dev.xe.darc/profiles/default/Default/Storage/ext/iOl0pHp6oV7jngsFpKgrUzSjpxZlkph+OKi3dsITtb7A=/def/Session Storage/000003.log 
+2026/03/13-01:21:04.408 620d5 Creating DB /Users/jan/Library/Application Support/dev.xe.darc/profiles/default/Default/Storage/ext/iOl0pHp6oV7jngsFpKgrUzSjpxZlkph+OKi3dsITtb7A=/def/Session Storage since it was missing.
+2026/03/13-01:21:04.414 620d5 Reusing MANIFEST /Users/jan/Library/Application Support/dev.xe.darc/profiles/default/Default/Storage/ext/iOl0pHp6oV7jngsFpKgrUzSjpxZlkph+OKi3dsITtb7A=/def/Session Storage/MANIFEST-000001
