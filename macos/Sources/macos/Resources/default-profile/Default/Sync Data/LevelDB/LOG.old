@@ -1,3 +1,3 @@
-2026/03/11-21:55:53.607 27dfa7b Reusing MANIFEST /Users/jan/Library/Application Support/dev.xe.darc/profiles/default/Default/Sync Data/LevelDB/MANIFEST-000001
-2026/03/11-21:55:53.622 27dfa7b Recovering log #3
-2026/03/11-21:55:53.623 27dfa7b Reusing old log /Users/jan/Library/Application Support/dev.xe.darc/profiles/default/Default/Sync Data/LevelDB/000003.log 
+2026/03/12-18:09:44.638 2a68459 Reusing MANIFEST /Users/jan/Library/Application Support/dev.xe.darc/profiles/default/Default/Sync Data/LevelDB/MANIFEST-000001
+2026/03/12-18:09:44.639 2a68459 Recovering log #3
+2026/03/12-18:09:44.639 2a68459 Reusing old log /Users/jan/Library/Application Support/dev.xe.darc/profiles/default/Default/Sync Data/LevelDB/000003.log 

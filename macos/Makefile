@@ -22,7 +22,7 @@ TEAM_ID ?= 2NN5M4QY5Q
 # Store in keychain: xcrun notarytool store-credentials "notarytool-profile" --apple-id "your@email.com" --team-id "YOURTEAMID"
 NOTARY_PROFILE ?= notarytool-profile
 
-.PHONY: all clean build bundle run release release-sign notarize dmg
+.PHONY: all clean build bundle run release release-sign check notarize dmg
 
 all: bundle
 
@@ -78,8 +78,25 @@ release-sign: build
 	-@spctl --assess --verbose --type execute $(APP_BUNDLE)
 	@echo "Signed app bundle created at $(APP_BUNDLE)"
 
-# Notarize the app bundle (requires release-sign first)
-notarize: release-sign
+# Pre-notarization checks (catches issues locally before slow upload)
+check: release-sign
+	@echo "Deep strict signature verification..."
+	@codesign --verify --deep --strict --verbose=2 $(APP_BUNDLE)
+	@echo "Checking hardened runtime on all executables..."
+	@fail=0; find $(APP_BUNDLE) -type f -perm +111 | while read f; do \
+		if file "$$f" | grep -q 'Mach-O'; then \
+			if ! codesign -dvv "$$f" 2>&1 | grep -q 'flags=.*runtime'; then \
+				echo "ERROR: no hardened runtime: $$f"; \
+				exit 1; \
+			fi; \
+		fi; \
+	done
+	@echo "Gatekeeper assessment..."
+	@spctl --assess --verbose --type execute $(APP_BUNDLE)
+	@echo "All pre-notarization checks passed!"
+
+# Notarize the app bundle (requires check first)
+notarize: check
 	@echo "Creating ZIP for notarization..."
 	@ditto -c -k --keepParent $(APP_BUNDLE) $(BUILD_DIR)/$(APP_NAME)-notarize.zip
 	@echo "Submitting to Apple for notarization..."

@@ -1,3 +1,46 @@
-2026/03/11-21:55:54.195 27dfa7a Reusing MANIFEST /Users/jan/Library/Application Support/dev.xe.darc/profiles/default/Default/Local Extension Settings/blockjmkbacgjkknlgpkjjiijinjdanf/MANIFEST-000001
-2026/03/11-21:55:54.196 27dfa7a Recovering log #34
-2026/03/11-21:55:54.199 27dfa7a Reusing old log /Users/jan/Library/Application Support/dev.xe.darc/profiles/default/Default/Local Extension Settings/blockjmkbacgjkknlgpkjjiijinjdanf/000034.log 
+2026/03/12-18:09:44.852 2a68459 Reusing MANIFEST /Users/jan/Library/Application Support/dev.xe.darc/profiles/default/Default/Local Extension Settings/blockjmkbacgjkknlgpkjjiijinjdanf/MANIFEST-000001
+2026/03/12-18:09:44.852 2a68459 Recovering log #13
+2026/03/12-18:09:44.855 2a68459 Reusing old log /Users/jan/Library/Application Support/dev.xe.darc/profiles/default/Default/Local Extension Settings/blockjmkbacgjkknlgpkjjiijinjdanf/000013.log 
+2026/03/12-18:10:58.744 2a6845a Level-0 table #17: started
+2026/03/12-18:10:58.776 2a6845a Level-0 table #17: 9019030 bytes OK
+2026/03/12-18:10:58.790 2a6845a Delete type=0 #13
+2026/03/12-18:10:58.802 2a6845a Compacting 4@0 + 1@1 files
+2026/03/12-18:10:58.810 2a6845a Generated table #18@0: 5 keys, 2777400 bytes
+2026/03/12-18:10:58.822 2a6845a Generated table #19@0: 4 keys, 3409514 bytes
+2026/03/12-18:10:58.829 2a6845a Generated table #20@0: 3 keys, 2178844 bytes
+2026/03/12-18:10:58.840 2a6845a Generated table #21@0: 4 keys, 2122020 bytes
+2026/03/12-18:10:58.847 2a6845a Generated table #22@0: 8 keys, 2282529 bytes
+2026/03/12-18:10:58.855 2a6845a Generated table #23@0: 4 keys, 2702522 bytes
+2026/03/12-18:10:58.874 2a6845a Generated table #24@0: 8 keys, 6765659 bytes
+2026/03/12-18:10:58.884 2a6845a Generated table #25@0: 13 keys, 2006040 bytes
+2026/03/12-18:10:58.884 2a6845a Compacted 4@0 + 1@1 files => 24244528 bytes
+2026/03/12-18:10:58.886 2a6845a compacted to: files[ 0 8 1 0 0 0 0 ]
+2026/03/12-18:10:58.886 2a6845a Delete type=2 #14
+2026/03/12-18:10:58.886 2a6845a Delete type=2 #17
+2026/03/12-18:10:58.886 2a6845a Delete type=2 #12
+2026/03/12-18:10:58.886 2a6845a Delete type=2 #10
+2026/03/12-18:10:58.886 2a6845a Delete type=2 #8
+2026/03/12-18:10:58.900 2a6845a Expanding@1 1+1 (2777400+4830228 bytes) to 8+1 (24244528+4830228 bytes)
+2026/03/12-18:10:58.900 2a6845a Compacting 8@1 + 1@2 files
+2026/03/12-18:10:58.908 2a6845a Generated table #26@1: 5 keys, 2777400 bytes
+2026/03/12-18:10:58.917 2a6845a Generated table #27@1: 4 keys, 3409514 bytes
+2026/03/12-18:10:58.923 2a6845a Generated table #28@1: 3 keys, 2178844 bytes
+2026/03/12-18:10:58.935 2a6845a Generated table #29@1: 6 keys, 2123132 bytes
+2026/03/12-18:10:58.944 2a6845a Generated table #30@1: 8 keys, 2282529 bytes
+2026/03/12-18:10:58.950 2a6845a Generated table #31@1: 4 keys, 2702522 bytes
+2026/03/12-18:10:58.961 2a6845a Generated table #32@1: 8 keys, 6765659 bytes
+2026/03/12-18:10:58.965 2a6845a Generated table #33@1: 18 keys, 2006379 bytes
+2026/03/12-18:10:58.965 2a6845a Compacted 8@1 + 1@2 files => 24245979 bytes
+2026/03/12-18:10:58.967 2a6845a compacted to: files[ 0 0 8 0 0 0 0 ]
+2026/03/12-18:10:58.967 2a6845a Delete type=2 #5
+2026/03/12-18:10:58.967 2a6845a Delete type=2 #20
+2026/03/12-18:10:58.967 2a6845a Delete type=2 #21
+2026/03/12-18:10:58.967 2a6845a Delete type=2 #23
+2026/03/12-18:10:58.967 2a6845a Delete type=2 #22
+2026/03/12-18:10:58.967 2a6845a Delete type=2 #25
+2026/03/12-18:10:58.967 2a6845a Delete type=2 #19
+2026/03/12-18:10:58.967 2a6845a Delete type=2 #18
+2026/03/12-18:10:58.967 2a6845a Delete type=2 #24
+2026/03/12-18:11:01.799 2a68459 Level-0 table #35: started
+2026/03/12-18:11:01.849 2a68459 Level-0 table #35: 7433562 bytes OK
+2026/03/12-18:11:01.851 2a68459 Delete type=0 #16
