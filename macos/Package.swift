@@ -15,6 +15,7 @@ let package = Package(
             name: "macos",
             exclude: [
                 "Info.plist",
+                "Entitlements.plist",
                 "Resources/default-profile",
                 "Resources/app.icns",
                 "Resources/vms",

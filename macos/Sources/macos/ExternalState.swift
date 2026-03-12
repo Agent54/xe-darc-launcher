@@ -213,7 +213,7 @@ final class ExternalState: @unchecked Sendable {
 
     /// Resolve a helper app path: prefer the user data dir copy (avoids signature issues),
     /// fall back to the app bundle's Helpers/.
-    private static func resolveHelperApp(name: String) -> URL {
+    static func resolveHelperApp(name: String) -> URL {
         let userCopy = appDataURL.appendingPathComponent(name)
         if FileManager.default.fileExists(atPath: userCopy.path) {
             return userCopy
@@ -396,7 +396,7 @@ final class ExternalState: @unchecked Sendable {
 
     func startDarc() -> String? {
         if !chromeRunning, let err = startChrome() { return err }
-        _ = patchDarcAppPlist()
+        _ = ensureDarcAppShim()
 
         let appURL = Self.appDataURL.appendingPathComponent("Darc.app")
         let loader = appURL.appendingPathComponent("Contents/MacOS/app_mode_loader").path
@@ -896,52 +896,74 @@ final class ExternalState: @unchecked Sendable {
         return result.exitCode == 0 ? nil : (result.error.isEmpty ? "colima command failed" : result.error)
     }
 
+    /// Ensure the Darc.app shim in the user data directory has the correct
+    /// CrAppModeUserDataDir for the current profile.  Instead of modifying an
+    /// existing .app bundle (which triggers the macOS "wants to update existing
+    /// software" App Management prompt), we delete the old shim and recreate it
+    /// from the template with the correct path already substituted, then sign once.
     @discardableResult
-    func patchDarcAppPlist() -> String? {
-        let plistPath = Self.appDataURL.appendingPathComponent("Darc.app/Contents/Info.plist")
-        guard FileManager.default.fileExists(atPath: plistPath.path) else { return nil }
+    func ensureDarcAppShim() -> String? {
+        let fm = FileManager.default
+        let dstApp = Self.appDataURL.appendingPathComponent("Darc.app")
+        let plistPath = dstApp.appendingPathComponent("Contents/Info.plist")
+        let userDataDir = Self.appDataURL
+            .appendingPathComponent("profiles/\(selectedProfileName())/-/Web Applications/_crx_olcppkbdbkjjkmaedekgaajkgipnodan")
+            .path
+
+        // Check if the existing shim already has the correct path — skip if so.
+        if fm.fileExists(atPath: plistPath.path) {
+            if let content = try? String(contentsOf: plistPath, encoding: .utf8),
+               content.contains("<string>\(userDataDir)</string>") {
+                return nil  // Already correct, nothing to do.
+            }
+        }
+
+        // Find the template shim (shipped alongside the launcher).
+        let templateApp = Self.resolveHelperApp(name: "Darc.app")
+        let templatePlist = templateApp.appendingPathComponent("Contents/Info.plist")
+        guard fm.fileExists(atPath: templatePlist.path) else {
+            let msg = "Darc.app template not found at \(templateApp.path)"
+            appendLog("launcher", msg)
+            return msg
+        }
 
         do {
-            let content = try String(contentsOf: plistPath, encoding: .utf8)
-            let userDataDir = Self.appDataURL
-                .appendingPathComponent("profiles/\(selectedProfileName())/-/Web Applications/_crx_olcppkbdbkjjkmaedekgaajkgipnodan")
-                .path
+            // Delete the old shim entirely to avoid modifying an existing .app bundle.
+            if fm.fileExists(atPath: dstApp.path) {
+                try fm.removeItem(at: dstApp)
+            }
 
-            let lines = content.components(separatedBy: "\n")
-            var outLines = [String]()
-            var inUserDataKey = false
-            for line in lines {
-                if line.contains("<key>CrAppModeUserDataDir</key>") {
-                    inUserDataKey = true
-                    outLines.append(line)
-                } else if inUserDataKey && line.contains("<string>") {
-                    outLines.append("\t<string>\(userDataDir)</string>")
-                    inUserDataKey = false
-                } else {
-                    outLines.append(line)
+            // Copy the template files individually, skipping _CodeSignature,
+            // so the destination is never a signed .app bundle (avoids the
+            // macOS App Management permission prompt).
+            let srcContents = templateApp.appendingPathComponent("Contents")
+            let dstContents = dstApp.appendingPathComponent("Contents")
+            let skipDirs: Set<String> = ["_CodeSignature"]
+            if let items = try? fm.contentsOfDirectory(atPath: srcContents.path) {
+                for item in items where !skipDirs.contains(item) {
+                    let src = srcContents.appendingPathComponent(item)
+                    let dst = dstContents.appendingPathComponent(item)
+                    try fm.createDirectory(at: dst.deletingLastPathComponent(), withIntermediateDirectories: true)
+                    try fm.copyItem(at: src, to: dst)
                 }
             }
-            let out = outLines.joined(separator: "\n")
 
-            // Only write if content actually changed; writing invalidates the
-            // ad-hoc code signature that Chrome requires for app shim validation.
-            if out == content { return nil }
+            // Read the template plist and substitute the placeholder.
+            var content = try String(contentsOf: plistPath, encoding: .utf8)
+            content = content.replacingOccurrences(of: "__DARC_USER_DATA_DIR__", with: userDataDir)
+            try content.write(to: plistPath, atomically: true, encoding: .utf8)
 
-            try out.write(to: plistPath, atomically: true, encoding: .utf8)
-
-            // Re-sign the bundle so Chrome accepts the shim's code signature.
-            let appBundlePath = Self.appDataURL.appendingPathComponent("Darc.app").path
-            let result = runCommand("/usr/bin/codesign", arguments: ["--force", "--deep", "--sign", "-", appBundlePath])
+            // Sign the freshly created bundle (not modifying an existing one).
+            let result = runCommand("/usr/bin/codesign", arguments: ["--force", "--deep", "--sign", "-", dstApp.path])
             if result.exitCode != 0 {
-                let msg = "codesign after plist patch failed: \(result.error)"
+                let msg = "codesign of Darc.app shim failed: \(result.error)"
                 appendLog("launcher", msg)
-                print("[ExternalState] \(msg)")
                 return msg
             }
-            appendLog("launcher", "Patched Darc.app Info.plist and re-signed")
+            appendLog("launcher", "Created Darc.app shim with profile \(selectedProfileName())")
             return nil
         } catch {
-            return "Failed to patch Info.plist: \(error.localizedDescription)"
+            return "Failed to create Darc.app shim: \(error.localizedDescription)"
         }
     }
 
