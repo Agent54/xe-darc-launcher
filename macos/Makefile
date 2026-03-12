@@ -11,11 +11,13 @@ DMG_NAME = $(APP_NAME).dmg
 
 # Code signing identity - replace with your Developer ID Application certificate
 # Find yours with: security find-identity -v -p codesigning
-DEVELOPER_ID ?= 772B3JT6MK
+# For distribution: use "Developer ID Application: Your Name (TEAMID)"
+# For development: use "Apple Development: Your Name (ID)"
+DEVELOPER_ID ?= Apple Development: Jan Johannes (772B3JT6MK)
 
 # Apple ID for notarization - set these environment variables or pass to make
 APPLE_ID ?= jan@ntr.io
-TEAM_ID ?= YOURTEAMID
+TEAM_ID ?= 772B3JT6MK
 # Create app-specific password at https://appleid.apple.com/account/manage
 # Store in keychain: xcrun notarytool store-credentials "notarytool-profile" --apple-id "your@email.com" --team-id "YOURTEAMID"
 NOTARY_PROFILE ?= notarytool-profile
@@ -71,9 +73,9 @@ release-sign: build
 	@codesign --force --deep --options runtime --sign "$(DEVELOPER_ID)" $(APP_BUNDLE)
 	@echo "Verifying signature..."
 	@codesign --verify --verbose $(APP_BUNDLE)
-	# enable for distribution:
-	# @echo "Checking Gatekeeper (requires Developer ID cert for distribution)..."
-	# -@spctl --assess --verbose --type execute $(APP_BUNDLE)
+
+	@echo "Checking Gatekeeper (requires Developer ID cert for distribution)..."
+	-@spctl --assess --verbose --type execute $(APP_BUNDLE)
 	@echo "Signed app bundle created at $(APP_BUNDLE)"
 
 # Notarize the app bundle (requires release-sign first)
