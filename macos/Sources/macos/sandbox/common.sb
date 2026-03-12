@@ -1,0 +1,127 @@
+;; Common baseline seatbelt profile for macOS GUI applications
+;; This file is included by app-specific profiles using (import "common.sb")
+;;
+;; These permissions are required for any AppKit/Foundation-based app to function.
+;; They are not app-specific, just what the platform needs to bootstrap.
+;;
+;; NOTE: (version 1) is NOT included here - it must be in the main profile only
+
+;; ============================================================================
+;; MACH IPC - System services
+;; ============================================================================
+
+;; Allow all Apple system services - macOS GUI apps talk to dozens of services
+;; Window server, CoreGraphics, HIServices, TCC, Launch Services, etc.
+(allow mach-lookup (global-name-prefix "com.apple."))
+
+;; Allow registering per-process mach ports (accessibility server, TSM, etc.)
+(allow mach-register (local-name-prefix ""))
+
+;; ============================================================================
+;; FILE ACCESS - System paths
+;; ============================================================================
+
+;; Root filesystem metadata (needed for path resolution by dyld)
+(allow file-read-metadata (literal "/"))
+(allow file-read-metadata (literal "/var"))
+(allow file-read-metadata (literal "/etc"))
+(allow file-read-metadata (literal "/tmp"))
+(allow file-read-metadata (literal "/private"))
+(allow file-read-metadata (literal "/System"))
+(allow file-read-metadata (subpath "/System/Volumes"))
+(allow file-read-metadata (subpath "/Library/Developer"))
+(allow file-read-metadata (subpath "/Volumes"))
+
+;; System frameworks and libraries
+(allow file-read* (subpath "/System/Library"))
+(allow file-read* (subpath "/System/Cryptexes"))
+(allow file-read* (subpath "/usr/lib"))
+(allow file-read* (subpath "/usr/share"))
+
+;; System databases (eligibility, launch services, etc.)
+(allow file-read* (subpath "/private/var/db"))
+
+;; Device nodes needed by frameworks
+(allow file-read* (literal "/dev/null"))
+(allow file-read* (literal "/dev/zero"))
+(allow file-read* (literal "/dev/urandom"))
+(allow file-read* (literal "/dev/random"))
+(allow file-read* (literal "/dev/dtracehelper"))
+(allow file-write* (literal "/dev/dtracehelper"))
+(allow file-write* (literal "/dev/null"))
+(allow file-ioctl (literal "/dev/dtracehelper"))
+
+;; Library paths for system-wide resources
+(allow file-read* (subpath "/Library/Fonts"))
+(allow file-read* (subpath "/Library/Frameworks"))
+(allow file-read-metadata (subpath "/Library/Application Support"))
+
+;; ============================================================================
+;; USER DIRECTORIES - Using home-relative paths for portability
+;; ============================================================================
+
+;; User home directory metadata (needed for path resolution)
+(allow file-read-metadata (literal "/Users"))
+;; HOME parameter is substituted by Sandbox.swift at runtime
+(allow file-read-metadata (literal (param "HOME")))
+
+;; User caches and temp directories
+(allow file-read* (subpath "/private/var/folders"))
+(allow file-write* (subpath "/private/var/folders"))
+
+;; ============================================================================
+;; USER LIBRARY - Preferences, fonts, input methods
+;; ============================================================================
+
+;; Using HOME parameter for portability (substituted at runtime)
+(allow file-read* (subpath (string-append (param "HOME") "/Library/Fonts")))
+(allow file-read* (subpath (string-append (param "HOME") "/Library/Keyboard Layouts")))
+(allow file-read* (subpath (string-append (param "HOME") "/Library/Input Methods")))
+(allow file-read* (subpath (string-append (param "HOME") "/Library/Preferences")))
+(allow file-read* (subpath (string-append (param "HOME") "/Library/Caches")))
+
+;; ============================================================================
+;; SYSTEM INFO
+;; ============================================================================
+
+;; sysctl - OS version, hardware info, CPU count, etc.
+(allow sysctl-read)
+
+;; User preferences (Universal Access, HiToolbox, locale, etc.)
+(allow user-preference-read)
+
+;; ============================================================================
+;; PROCESS
+;; ============================================================================
+
+;; Allow reading own process info
+(allow process-info-pidinfo (target self))
+
+;; ============================================================================
+;; IPC - Inter-process communication
+;; ============================================================================
+
+;; POSIX shared memory for cfprefs (user defaults)
+(allow ipc-posix-shm-read-data (ipc-posix-name-prefix "apple.cfprefs."))
+(allow ipc-posix-shm-write-data (ipc-posix-name-prefix "apple.cfprefs."))
+
+;; ============================================================================
+;; IOKIT - Hardware access
+;; ============================================================================
+
+;; Graphics hardware (required for any window rendering)
+(allow iokit-open-user-client
+    (iokit-user-client-class "IOSurfaceRootUserClient")
+    (iokit-user-client-class "AGXDeviceUserClient")
+    (iokit-user-client-class "IOAccelerator")
+    (iokit-user-client-class "IOAccelerationUserClient")
+    (iokit-user-client-class "AppleGraphicsDeviceControlClient"))
+
+;; ============================================================================
+;; FILE EXTENSIONS - Sandbox tokens
+;; ============================================================================
+
+;; Allow issuing and consuming file access tokens
+(allow file-issue-extension
+    (extension-class "com.apple.app-sandbox.read")
+    (extension-class "com.apple.app-sandbox.read-write"))

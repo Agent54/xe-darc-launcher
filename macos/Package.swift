@@ -6,13 +6,22 @@ import PackageDescription
 let package = Package(
     name: "macos",
     platforms: [
-        .macOS(.v12)
+        .macOS(.v26)
     ],
     targets: [
         // Targets are the basic building blocks of a package, defining a module or a test suite.
         // Targets can depend on other targets in this package and products from dependencies.
         .executableTarget(
-            name: "macos"
-        ),
+            name: "macos",
+            exclude: [
+                "Info.plist",
+                "Resources/default-profile"
+            ],
+            resources: [
+                .copy("Resources/app.icns"),
+                .copy("Resources/vms"),
+                .copy("sandbox")
+            ]
+        )
     ]
 )

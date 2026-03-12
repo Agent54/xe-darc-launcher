@@ -1,0 +1,118 @@
+;; Seatbelt profile for darc-launcher
+;; View violations with: log stream --predicate 'sender == "Sandbox"' --level debug
+;;
+;; Parameters substituted at runtime by Sandbox.swift:
+;;   HOME - user's home directory (e.g., /Users/jan)
+;;   BUNDLE_PATH - path to the app bundle
+;;   BUNDLE_DIR - parent directory of the bundle (for dev builds)
+;;   CWD - current working directory
+;;   USER - current username
+
+(version 1)
+
+;; NOTE: Using (allow default) because (deny default) causes child processes
+;; (e.g., colima) to crash in dyld's "ignition" phase on macOS 26+.
+;; The ignition security system requires permissions we haven't identified yet.
+;;
+;; FIXME: Identify the specific permissions needed for child process execution
+;; and switch to (deny default) for proper sandboxing.
+(allow default)
+
+;; Import common baseline for macOS GUI apps
+(import "common.sb")
+
+;; ============================================================================
+;; APP BUNDLE - Read access to the application itself
+;; ============================================================================
+
+;; Read the app bundle directory
+(allow file-read* (subpath (param "BUNDLE_PATH")))
+
+;; For development - allow reading the bundle's parent directory (.build)
+(allow file-read* (subpath (param "BUNDLE_DIR")))
+
+;; Allow reading cwd and parent paths for path resolution (needed by Process)
+(allow file-read* (subpath (param "CWD")))
+;; For path traversal, allow metadata on common parent directories
+(allow file-read-metadata (subpath (param "HOME")))
+
+;; ============================================================================
+;; APP-SPECIFIC PERMISSIONS
+;; ============================================================================
+
+;; --- Application Support data ---
+;; Allow reading and writing profiles, VMs, and settings
+;; Using HOME parameter for portability
+(allow file-read* (subpath (string-append (param "HOME") "/Library/Application Support/com.jan.darc-launcher")))
+(allow file-write* (subpath (string-append (param "HOME") "/Library/Application Support/com.jan.darc-launcher")))
+
+;; --- Colima/Lima data directories ---
+;; Colima stores VM state, config, and sockets in ~/.colima and ~/.lima
+(allow file-read* (subpath (string-append (param "HOME") "/.colima")))
+(allow file-write* (subpath (string-append (param "HOME") "/.colima")))
+(allow file-read* (subpath (string-append (param "HOME") "/.lima")))
+(allow file-write* (subpath (string-append (param "HOME") "/.lima")))
+
+;; --- Process execution: CLI tools ---
+(allow file-read* (subpath "/usr/bin"))
+(allow process-exec (subpath "/usr/bin"))
+
+;; Allow reading and executing Homebrew paths
+;; /bin contains symlinks, /Cellar contains actual binaries
+(allow file-read* (subpath "/opt/homebrew"))
+(allow file-read* (subpath "/usr/local"))
+(allow process-exec (subpath "/opt/homebrew"))
+(allow process-exec (subpath "/usr/local"))
+
+;; Allow forking child processes (needed for Process())
+(allow process-fork)
+(allow process-exec-interpreter)
+
+;; --- Unix sockets for colima/lima communication ---
+(allow network-outbound (local unix-socket))
+(allow network-inbound (local unix-socket))
+
+;; --- System info colima needs ---
+;; Colima/Go runtime needs system information
+(allow sysctl-read)
+(allow sysctl-write)
+
+;; --- Process info for Go runtime ---
+;; Go needs to read info about all processes for its runtime
+(allow process-info-pidinfo)
+(allow process-info-dirtycontrol)
+(allow process-info-rusage)
+(allow process-info-codesignature)
+
+;; --- Signal handling ---
+(allow signal (target self))
+(allow signal (target children))
+
+;; --- Mach task ports (Go runtime needs these) ---
+(allow mach-task-name)
+(allow mach-lookup)
+
+;; --- System resources ---
+(allow pseudo-tty)
+(allow iokit-get-properties)
+
+;; --- User defaults (Go may read system preferences) ---
+(allow user-preference-read)
+
+;; --- dyld shared cache mapping (critical for child processes) ---
+;; Without this, child processes fail in dyld's ignition/boot phase
+(allow file-map-executable (subpath "/System/Cryptexes"))
+(allow file-map-executable (subpath "/System/Library"))
+(allow file-map-executable (subpath "/usr/lib"))
+(allow file-map-executable (subpath "/opt/homebrew"))
+(allow file-map-executable (subpath "/usr/local"))
+
+;; Volume paths for dyld (macOS 26+ uses firmlinked volumes)
+(allow file-read* (subpath "/System/Volumes"))
+(allow file-map-executable (subpath "/System/Volumes"))
+
+;; --- Code signature verification ---
+(allow process-info-codesignature)
+
+;; --- nvram (may be needed by dyld/ignition) ---
+(allow nvram-get)
