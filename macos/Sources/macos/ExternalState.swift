@@ -140,7 +140,7 @@ final class ExternalState: @unchecked Sendable {
 
     func updateAll() {
         ensureAppDataFolderExists()
-        refreshAvailableChromes()
+        refreshChromeAvailability()
         updateChromeProfiles()
         updateVMProfiles()
         refreshRuntimeStateFromSystemTruth(force: true)
@@ -232,7 +232,7 @@ final class ExternalState: @unchecked Sendable {
     /// - Parameter scanAll: When `true` (e.g. Option key held), scan for all known Chrome variants.
     ///   When `false` (default), only populate the configured variant (defaults to Helium) to avoid
     ///   silently falling back to a different browser.
-    func refreshAvailableChromes(scanAll: Bool = false) {
+    func refreshChromeAvailability(scanAll: Bool = false) {
         let heliumApp = Self.resolveHelperApp(name: "Helium.app")
         let heliumExec = heliumApp.appendingPathComponent("Contents/MacOS/Helium")
         let allChromePaths: [(String, String, String, String)] = [
@@ -350,7 +350,7 @@ final class ExternalState: @unchecked Sendable {
     }
 
     func checkDependencies() -> DependencyStatus {
-        refreshAvailableChromes()
+        refreshChromeAvailability()
         updateChromeProfiles()
         return DependencyStatus(
             colima: resolveExecutable(name: "colima") != nil,
@@ -812,6 +812,9 @@ final class ExternalState: @unchecked Sendable {
     }
 
     func startChrome() -> String? {
+        // Re-check if the configured chrome is available (it may have been downloaded since last check)
+        refreshChromeAvailability()
+
         let profileName = selectedProfileName()
         let profileDir = Self.appDataURL.appendingPathComponent("profiles/\(profileName)", isDirectory: true)
         if !FileManager.default.fileExists(atPath: profileDir.path) {

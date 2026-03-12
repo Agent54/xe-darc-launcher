@@ -217,7 +217,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         // Only scan all Chrome variants when Option key is held
         if showVariants {
-            state.refreshAvailableChromes(scanAll: true)
+            state.refreshChromeAvailability(scanAll: true)
         }
         let selected = state.selectedChrome()
 
@@ -398,13 +398,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             Task { @MainActor [weak self] in self?.renderMenuLabels() }
         }
         startStateRefreshLoop()
-        // Monitor Option key press/release while menu is open to toggle variant items
-        specialKeyCheck = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
+        // Monitor Option key press/release while menu is open to toggle variant items.
+        // NSMenu runs its own event tracking loop so addLocalMonitor won't fire;
+        // addGlobalMonitor catches modifier changes during menu tracking.
+        specialKeyCheck = NSEvent.addGlobalMonitorForEvents(matching: .flagsChanged) { [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self, let chromeSubmenu = self.chromeSubmenu else { return }
                 self.refreshChromeMenuOptions(in: chromeSubmenu)
             }
-            return event
         }
     }
 
