@@ -28,6 +28,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var statusItem: NSStatusItem?
     private let logPanelController = LogPanelController()
     private var stateRefreshTimer: Timer?
+    private var specialKeyCheck: Any?
 
     // Track which services have a pending operation (shows ⏳)
     private var pendingServices: Set<String> = []
@@ -61,6 +62,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             _ = ExternalState.shared.launchBrowserStack()
             Task { @MainActor in self.renderMenuLabels() }
         }
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        // When the app is launched again while already running, bring Darc to foreground or start it
+        let state = ExternalState.shared
+        if state.darcRunning {
+            if let app = state.darcAppRef {
+                app.activate()
+            }
+        } else {
+            DispatchQueue.global(qos: .userInitiated).async {
+                _ = state.launchBrowserStack()
+                Task { @MainActor in self.renderMenuLabels() }
+            }
+        }
+        return false
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -175,7 +192,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         submenu.addItem(headless)
 
         // Chrome variants (shown only when Option key is held)
-        rebuildChromeVariantItems(in: submenu)
+        refreshChromeMenuOptions(in: submenu)
 
         item.submenu = submenu
         parent.addItem(item)
@@ -188,16 +205,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private var chromeVariantSeparator: NSMenuItem?
 
-    private func rebuildChromeVariantItems(in submenu: NSMenu) {
+    private func refreshChromeMenuOptions(in submenu: NSMenu) {
         // Remove old variant items
         for old in chromeVariantItems { submenu.removeItem(old) }
         chromeVariantItems.removeAll()
         if let sep = chromeVariantSeparator { submenu.removeItem(sep); chromeVariantSeparator = nil }
 
         let state = ExternalState.shared
-        let selected = state.selectedChrome()
         let minVersion = 145
         let showVariants = NSEvent.modifierFlags.contains(.option)
+
+        // Only scan all Chrome variants when Option key is held
+        if showVariants {
+            state.refreshAvailableChromes(scanAll: true)
+        }
+        let selected = state.selectedChrome()
 
         // Only show variant selector when Option key is held
         guard showVariants else { return }
@@ -376,10 +398,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             Task { @MainActor [weak self] in self?.renderMenuLabels() }
         }
         startStateRefreshLoop()
+        // Monitor Option key press/release while menu is open to toggle variant items
+        specialKeyCheck = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
+            Task { @MainActor [weak self] in
+                guard let self, let chromeSubmenu = self.chromeSubmenu else { return }
+                self.refreshChromeMenuOptions(in: chromeSubmenu)
+            }
+            return event
+        }
     }
 
     func menuDidClose(_ menu: NSMenu) {
         stopStateRefreshLoop()
+        if let specialKeyCheck {
+            NSEvent.removeMonitor(specialKeyCheck)
+            self.specialKeyCheck = nil
+        }
     }
 
     // MARK: - Render (reads cached state only, no I/O)
@@ -424,7 +458,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         // Rebuild dynamic submenu items (handles late discovery after background updateAll)
         if let chromeSubmenu {
-            rebuildChromeVariantItems(in: chromeSubmenu)
+            refreshChromeMenuOptions(in: chromeSubmenu)
         }
         profilesItem?.title = "Profile: \(state.selectedProfileName())"
         rebuildProfileItems()

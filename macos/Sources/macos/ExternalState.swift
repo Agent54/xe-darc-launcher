@@ -114,6 +114,8 @@ final class ExternalState: @unchecked Sendable {
     /// Managed long-running subprocesses keyed by name
     private var subprocesses: [String: Process] = [:]
     private var darcApp: NSRunningApplication?
+    /// Public read-only access to the Darc NSRunningApplication reference for activation.
+    var darcAppRef: NSRunningApplication? { darcApp }
 
     /// Check if a named subprocess is currently running
     func isSubprocessRunning(_ name: String) -> Bool {
@@ -138,7 +140,7 @@ final class ExternalState: @unchecked Sendable {
 
     func updateAll() {
         ensureAppDataFolderExists()
-        updateInstalledChromes()
+        refreshAvailableChromes()
         updateChromeProfiles()
         updateVMProfiles()
         refreshRuntimeStateFromSystemTruth(force: true)
@@ -226,10 +228,14 @@ final class ExternalState: @unchecked Sendable {
         return userCopy
     }
 
-    func updateInstalledChromes() {
+    /// Update the list of known Chrome installations.
+    /// - Parameter scanAll: When `true` (e.g. Option key held), scan for all known Chrome variants.
+    ///   When `false` (default), only populate the configured variant (defaults to Helium) to avoid
+    ///   silently falling back to a different browser.
+    func refreshAvailableChromes(scanAll: Bool = false) {
         let heliumApp = Self.resolveHelperApp(name: "Helium.app")
         let heliumExec = heliumApp.appendingPathComponent("Contents/MacOS/Helium")
-        let chromePaths: [(String, String, String, String)] = [
+        let allChromePaths: [(String, String, String, String)] = [
             ("Helium", heliumApp.path, heliumExec.path, "helium"),
             ("Google Chrome Beta", "/Applications/Google Chrome Beta.app", "/Applications/Google Chrome Beta.app/Contents/MacOS/Google Chrome Beta", "beta"),
             ("Google Chrome", "/Applications/Google Chrome.app", "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", "stable"),
@@ -237,6 +243,15 @@ final class ExternalState: @unchecked Sendable {
         ]
 
         let fm = FileManager.default
+        let chromePaths: [(String, String, String, String)]
+        if scanAll {
+            chromePaths = allChromePaths
+        } else {
+            // Only check the currently configured variant (default: helium)
+            let savedVariant = settings.rawData?["selected_chrome_variant"] as? String ?? "helium"
+            chromePaths = allChromePaths.filter { $0.3 == savedVariant }
+        }
+
         installedChromes = chromePaths.map { name, app, exec, variant in
             InstalledChrome(
                 name: name,
@@ -335,7 +350,7 @@ final class ExternalState: @unchecked Sendable {
     }
 
     func checkDependencies() -> DependencyStatus {
-        updateInstalledChromes()
+        refreshAvailableChromes()
         updateChromeProfiles()
         return DependencyStatus(
             colima: resolveExecutable(name: "colima") != nil,
@@ -831,7 +846,9 @@ final class ExternalState: @unchecked Sendable {
 
     func stopChrome() {
         let wasRunning = chromeRunning
-        stopDarc()
+        // Don't explicitly stop Darc here — it runs inside the Chrome engine process
+        // and will terminate naturally when Chrome exits.  Keeping it separate lets us
+        // verify that Darc is actually attached to the correct Chrome instance.
         terminateSubprocess("browser")
         appendLog("launcher", "Chrome stopped (wasRunning=\(wasRunning))")
         print("[ExternalState] Chrome stopped (wasRunning=\(wasRunning))")
@@ -968,15 +985,13 @@ final class ExternalState: @unchecked Sendable {
         return true
     }
 
-    /// Returns the currently selected Chrome variant, falling back to the first eligible one.
+    /// Returns the currently selected Chrome variant.  Defaults to "helium" when no variant is saved.
+    /// Returns `nil` if the selected variant is not installed — never silently falls back to another browser.
     func selectedChrome() -> InstalledChrome? {
         let minVersion = 145
+        let savedVariant = settings.rawData?["selected_chrome_variant"] as? String ?? "helium"
         let eligible = installedChromes.filter { $0.isInstalled && ($0.version ?? 0) >= minVersion }
-        if let savedVariant = settings.rawData?["selected_chrome_variant"] as? String,
-           let match = eligible.first(where: { $0.variant == savedVariant }) {
-            return match
-        }
-        return eligible.first
+        return eligible.first(where: { $0.variant == savedVariant })
     }
 
     /// Select a Chrome variant by its variant key (e.g. "beta", "stable", "canary").
