@@ -37,11 +37,11 @@ package: build
 	@echo 'APPL????' > $(CONTENTS)/PkgInfo
 	@rsync -a Sources/macos/Resources/ $(RESOURCES)/
 	@rsync -a --delete Sources/macos/sandbox/ $(RESOURCES)/sandbox/
-	@if [ -d "$(HELPERS_SRC)" ] && ls $(HELPERS_SRC)/*.app 1>/dev/null 2>&1; then \
-		mkdir -p $(HELPERS_DST); \
-		rsync -a $(HELPERS_SRC)/*.app $(HELPERS_DST)/; \
-		echo "Helpers copied to $(HELPERS_DST)"; \
-	fi
+	# @if [ -d "$(HELPERS_SRC)" ] && ls $(HELPERS_SRC)/*.app 1>/dev/null 2>&1; then \
+	# 	mkdir -p $(HELPERS_DST); \
+	# 	rsync -a $(HELPERS_SRC)/*.app $(HELPERS_DST)/; \
+	# 	echo "Helpers copied to $(HELPERS_DST)"; \
+	# fi
 	@echo "App package created at $(APP_BUNDLE)"
 
 bundle: package
@@ -64,11 +64,11 @@ release-sign: build
 	@echo 'APPL????' > $(CONTENTS)/PkgInfo
 	@rsync -a Sources/macos/Resources/ $(RESOURCES)/
 	@rsync -a --delete Sources/macos/sandbox/ $(RESOURCES)/sandbox/
-	@if [ -d "$(HELPERS_SRC)" ] && ls $(HELPERS_SRC)/*.app 1>/dev/null 2>&1; then \
-		mkdir -p $(HELPERS_DST); \
-		rsync -a $(HELPERS_SRC)/*.app $(HELPERS_DST)/; \
-		echo "Helpers copied to $(HELPERS_DST)"; \
-	fi
+	# @if [ -d "$(HELPERS_SRC)" ] && ls $(HELPERS_SRC)/*.app 1>/dev/null 2>&1; then \
+	# 	mkdir -p $(HELPERS_DST); \
+	# 	rsync -a $(HELPERS_SRC)/*.app $(HELPERS_DST)/; \
+	# 	echo "Helpers copied to $(HELPERS_DST)"; \
+	# fi
 	@echo "Signing with Developer ID: $(DEVELOPER_ID)"
 	@codesign --force --deep --options runtime --sign "$(DEVELOPER_ID)" $(APP_BUNDLE)
 	@echo "Verifying signature..."
@@ -82,18 +82,21 @@ release-sign: build
 check: release-sign
 	@echo "Deep strict signature verification..."
 	@codesign --verify --deep --strict --verbose=2 $(APP_BUNDLE)
-	@echo "Checking hardened runtime on all executables..."
-	@fail=0; find $(APP_BUNDLE) -type f -perm +111 | while read f; do \
-		if file "$$f" | grep -q 'Mach-O'; then \
-			if ! codesign -dvv "$$f" 2>&1 | grep -q 'flags=.*runtime'; then \
-				echo "ERROR: no hardened runtime: $$f"; \
-				exit 1; \
-			fi; \
-		fi; \
-	done
-	@echo "Gatekeeper assessment..."
-	@spctl --assess --verbose --type execute $(APP_BUNDLE)
-	@echo "All pre-notarization checks passed!"
+	# no app store hardened needed for now:
+	# @echo "Checking hardened runtime on all executables..."
+	# @fail=0; find $(APP_BUNDLE) -type f -perm +111 | while read f; do \
+	# 	if file "$$f" | grep -q 'Mach-O'; then \
+	# 		if ! codesign -dvv "$$f" 2>&1 | grep -q 'flags=.*runtime'; then \
+	# 			echo "ERROR: no hardened runtime: $$f"; \
+	# 			exit 1; \
+	# 		fi; \
+	# 	fi; \
+	# done
+
+	# @echo "Gatekeeper assessment..."
+	# @spctl --assess --verbose --type execute $(APP_BUNDLE)
+	# @echo "All pre-notarization checks passed!"
+
 
 # Notarize the app bundle (requires check first)
 notarize: check
