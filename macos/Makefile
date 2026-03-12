@@ -13,11 +13,11 @@ DMG_NAME = $(APP_NAME).dmg
 # Find yours with: security find-identity -v -p codesigning
 # For distribution: use "Developer ID Application: Your Name (TEAMID)"
 # For development: use "Apple Development: Your Name (ID)"
-DEVELOPER_ID ?= Apple Development: Jan Johannes (772B3JT6MK)
+DEVELOPER_ID ?= Developer ID Application: Luke Hubbard (2NN5M4QY5Q)
 
 # Apple ID for notarization - set these environment variables or pass to make
 APPLE_ID ?= jan@ntr.io
-TEAM_ID ?= 772B3JT6MK
+TEAM_ID ?= 2NN5M4QY5Q
 # Create app-specific password at https://appleid.apple.com/account/manage
 # Store in keychain: xcrun notarytool store-credentials "notarytool-profile" --apple-id "your@email.com" --team-id "YOURTEAMID"
 NOTARY_PROFILE ?= notarytool-profile
