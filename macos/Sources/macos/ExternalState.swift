@@ -185,19 +185,6 @@ final class ExternalState: @unchecked Sendable {
             }
         }
 
-        // --- Default profile template (from bundle Resources/) ---
-        if let bundleRes = Bundle.main.resourceURL {
-            let srcTemplate = bundleRes.appendingPathComponent("default-profile", isDirectory: true)
-            let dstTemplate = dataURL.appendingPathComponent("default-profile", isDirectory: true)
-            if fm.fileExists(atPath: srcTemplate.path) && !fm.fileExists(atPath: dstTemplate.path) {
-                do {
-                    try fm.copyItem(at: srcTemplate, to: dstTemplate)
-                    print("[ExternalState] Seeded default-profile template")
-                } catch {
-                    print("[ExternalState] Failed to seed default-profile: \(error)")
-                }
-            }
-        }
 
         // --- VM profile templates (from bundle Resources/vms/) ---
         let bundleVMs: URL? = Bundle.module.resourceURL?.appendingPathComponent("vms", isDirectory: true)
@@ -790,12 +777,12 @@ final class ExternalState: @unchecked Sendable {
         let fm = FileManager.default
 
         do {
-            // Check for a bootstrap template in the user data dir (seeded from bundle on first launch)
-            let templateURL = Self.appDataURL.appendingPathComponent("default-profile", isDirectory: true)
-            if fm.fileExists(atPath: templateURL.path) {
+            // Check for a bootstrap template in the app bundle resources
+            let templateURL = Bundle.main.resourceURL?.appendingPathComponent("default-profile", isDirectory: true)
+            if let templateURL = templateURL, fm.fileExists(atPath: templateURL.path) {
                 // Copy template contents to the new profile
                 try fm.copyItem(at: templateURL, to: profilePath)
-                appendLog("launcher", "Created profile '\(sanitized)' from bootstrap template")
+                appendLog("launcher", "Created profile '\(sanitized)' from bundle template")
             } else {
                 // No template — just create an empty directory
                 try fm.createDirectory(at: profilePath, withIntermediateDirectories: true)
