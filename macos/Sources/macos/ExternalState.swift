@@ -190,8 +190,7 @@ final class ExternalState: @unchecked Sendable {
 
 
         // --- VM profile templates (from bundle Resources/vms/) ---
-        let bundleVMs: URL? = Bundle.module.resourceURL?.appendingPathComponent("vms", isDirectory: true)
-            ?? Bundle.main.resourceURL?.appendingPathComponent("vms", isDirectory: true)
+        let bundleVMs: URL? = Bundle.main.resourceURL?.appendingPathComponent("vms", isDirectory: true)
         if let bundleVMs, fm.fileExists(atPath: bundleVMs.path) {
             let dstVMs = dataURL.appendingPathComponent("vms", isDirectory: true)
             if let files = try? fm.contentsOfDirectory(atPath: bundleVMs.path) {

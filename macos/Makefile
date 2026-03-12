@@ -48,7 +48,7 @@ bundle: package
 	@echo "Creating app bundle..."
 	@cp Sources/macos/Info.plist $(CONTENTS)/Info.plist
 	@echo "Signing app bundle (ad-hoc)..."
-	@codesign --force --deep --sign - $(APP_BUNDLE)
+	@codesign --force --sign - $(APP_BUNDLE)
 	@echo "App bundle created at $(APP_BUNDLE)"
 
 run: package
@@ -70,7 +70,7 @@ release-sign: build
 	# 	echo "Helpers copied to $(HELPERS_DST)"; \
 	# fi
 	@echo "Signing with Developer ID: $(DEVELOPER_ID)"
-	@codesign --force --deep --options runtime --sign "$(DEVELOPER_ID)" $(APP_BUNDLE)
+	@codesign --force --options runtime --sign "$(DEVELOPER_ID)" $(APP_BUNDLE)
 	@echo "Verifying signature..."
 	@codesign --verify --verbose $(APP_BUNDLE)
 

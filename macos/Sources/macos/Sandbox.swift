@@ -7,7 +7,7 @@ enum Sandbox {
     /// - Returns: true if sandbox was applied successfully, false otherwise
     @discardableResult
     static func apply() -> Bool {
-        guard let sandboxDir = Bundle.module.resourceURL?.appendingPathComponent("sandbox") else {
+        guard let sandboxDir = Bundle.main.resourceURL?.appendingPathComponent("sandbox") else {
             print("[Sandbox] ERROR: sandbox directory not found")
             return false
         }
