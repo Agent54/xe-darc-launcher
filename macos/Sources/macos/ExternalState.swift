@@ -933,11 +933,16 @@ final class ExternalState: @unchecked Sendable {
                 try fm.removeItem(at: dstApp)
             }
 
-            // Copy the template files individually, skipping _CodeSignature,
-            // so the destination is never a signed .app bundle (avoids the
-            // macOS App Management permission prompt).
+            // Build the shim in a staging directory (without .app extension) to
+            // avoid triggering macOS App Management protection during file writes.
+            let stagingDir = Self.appDataURL.appendingPathComponent("Darc.app-staging")
+            if fm.fileExists(atPath: stagingDir.path) {
+                try fm.removeItem(at: stagingDir)
+            }
+
+            // Copy template contents, skipping _CodeSignature.
             let srcContents = templateApp.appendingPathComponent("Contents")
-            let dstContents = dstApp.appendingPathComponent("Contents")
+            let dstContents = stagingDir.appendingPathComponent("Contents")
             let skipDirs: Set<String> = ["_CodeSignature"]
             if let items = try? fm.contentsOfDirectory(atPath: srcContents.path) {
                 for item in items where !skipDirs.contains(item) {
@@ -948,12 +953,16 @@ final class ExternalState: @unchecked Sendable {
                 }
             }
 
-            // Read the template plist and substitute the placeholder.
-            var content = try String(contentsOf: plistPath, encoding: .utf8)
+            // Substitute the placeholder in the plist.
+            let stagingPlist = dstContents.appendingPathComponent("Info.plist")
+            var content = try String(contentsOf: stagingPlist, encoding: .utf8)
             content = content.replacingOccurrences(of: "__DARC_USER_DATA_DIR__", with: userDataDir)
-            try content.write(to: plistPath, atomically: true, encoding: .utf8)
+            try content.write(to: stagingPlist, atomically: true, encoding: .utf8)
 
-            // Sign the freshly created bundle (not modifying an existing one).
+            // Rename staging dir to .app (atomic move, creates the .app in one step).
+            try fm.moveItem(at: stagingDir, to: dstApp)
+
+            // Sign the freshly created bundle.
             let result = runCommand("/usr/bin/codesign", arguments: ["--force", "--deep", "--sign", "-", dstApp.path])
             if result.exitCode != 0 {
                 let msg = "codesign of Darc.app shim failed: \(result.error)"
