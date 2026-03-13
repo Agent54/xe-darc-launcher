@@ -29,7 +29,7 @@ extension ExternalState {
         "--no-first-run",
         "--flag-switches-begin",
         "--enable-features=AppShimNotificationAttribution,DesktopPWAsAdditionalWindowingControls,DesktopPWAsLinkCapturingWithScopeExtensions,DesktopPWAsSubApps,IsolatedWebAppDevMode,IsolatedWebApps,OverscrollEffectOnNonRootScrollers,UseAdHocSigningForWebAppShims,PwaNavigationCapturing,UnframedIwa,WebAppBorderless,WebAppPredictableAppUpdating",
-        "--disable-features=CADisplayLinkInBrowser",
+        "--disable-features=CADisplayLinkInBrowser,AutomationControlled",
         "--flag-switches-end"
     ]
     // DO NOT DELETE:

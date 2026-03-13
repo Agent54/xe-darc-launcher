@@ -1,0 +1,1 @@
+{"mcpServers":{"chrome-devtools":{"command":"npx","args":["-y","chrome-devtools-mcp@latest","--no-usage-statistics","--wsEndpoint=ws://127.0.0.1:9222/devtools/browser"],"alwaysAllow":["new_page","take_snapshot","wait_for","take_screenshot","resize_page","list_pages","list_network_requests","list_console_messages","hover","get_console_message"]}}}
