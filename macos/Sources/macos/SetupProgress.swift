@@ -178,12 +178,16 @@ private class SetupCancelHelper: NSObject {
 
 // MARK: - Download progress delegate
 
-/// URLSession delegate that reports download progress via a callback.
+/// URLSession delegate that reports download progress and captures the downloaded file.
+/// NOTE: Do NOT use a completion handler on the download task when using this delegate,
+/// otherwise the delegate progress methods will not be called.
 class DownloadProgressDelegate: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
     private let onProgress: (Double) -> Void
+    private let completion: (URL?, Error?) -> Void
 
-    init(onProgress: @escaping (Double) -> Void) {
+    init(onProgress: @escaping (Double) -> Void, completion: @escaping (URL?, Error?) -> Void) {
         self.onProgress = onProgress
+        self.completion = completion
     }
 
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64, totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
@@ -192,6 +196,20 @@ class DownloadProgressDelegate: NSObject, URLSessionDownloadDelegate, @unchecked
     }
 
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
-        // Handled by completion handler
+        // Move to a stable temp location before the system deletes it
+        let ext = downloadTask.response?.suggestedFilename.flatMap { URL(string: $0)?.pathExtension } ?? "tmp"
+        let stableTemp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + "." + ext)
+        do {
+            try FileManager.default.moveItem(at: location, to: stableTemp)
+            completion(stableTemp, nil)
+        } catch {
+            completion(nil, error)
+        }
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        if let error {
+            completion(nil, error)
+        }
     }
 }

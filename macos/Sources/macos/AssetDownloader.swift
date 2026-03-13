@@ -63,25 +63,23 @@ func downloadSourceAssetsIfNeeded(dataURL: URL, log: @escaping (String, String) 
         nonisolated(unsafe) var downloadedFileURL: URL?
         nonisolated(unsafe) var downloadError: Error?
 
-        let session = URLSession(configuration: .default, delegate: DownloadProgressDelegate { fraction in
+        let delegate = DownloadProgressDelegate(onProgress: { fraction in
             DispatchQueue.main.async {
                 let base = (Double(index) / totalAssets) * 100
                 let portion = (1.0 / totalAssets) * 100
                 updateSetupProgress(progress: base + fraction * portion)
             }
-        }, delegateQueue: nil)
-
-        let task = session.downloadTask(with: asset.url) { tempURL, _, error in
+        }, completion: { fileURL, error in
             if let error {
                 downloadError = error
-            } else if let tempURL {
-                let ext = asset.unzip ? ".zip" : ("." + asset.url.pathExtension)
-                let stableTemp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ext)
-                try? FileManager.default.moveItem(at: tempURL, to: stableTemp)
-                downloadedFileURL = stableTemp
+            } else if let fileURL {
+                downloadedFileURL = fileURL
             }
             downloadSem.signal()
-        }
+        })
+        let session = URLSession(configuration: .default, delegate: delegate, delegateQueue: nil)
+
+        let task = session.downloadTask(with: asset.url)
         cancel.activeTask = task
         task.resume()
         downloadSem.wait()
