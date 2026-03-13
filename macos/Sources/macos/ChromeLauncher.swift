@@ -372,6 +372,104 @@ extension ExternalState {
     }
 }
 
+// MARK: - Zombie Process Detection
+
+extension ExternalState {
+
+    /// A stale browser-related process found on the system.
+    struct ZombieProcess {
+        let pid: pid_t
+        let name: String       // e.g. "Helium", "app_mode_loader"
+        let profileDir: String? // extracted from --user-data-dir if present
+    }
+
+    /// Find running Helium / Darc (app_mode_loader) processes that were NOT
+    /// spawned by this launcher instance.  These are "zombies" left over from
+    /// a previous crash or unclean shutdown.
+    func findZombieProcesses() -> [ZombieProcess] {
+        // Get all running args via `ps`
+        let pipe = Pipe()
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: "/bin/ps")
+        proc.arguments = ["-eo", "pid,comm"]
+        proc.standardOutput = pipe
+        proc.standardError = FileHandle.nullDevice
+        do { try proc.run() } catch { return [] }
+        proc.waitUntilExit()
+
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        guard let output = String(data: data, encoding: .utf8) else { return [] }
+
+        // Our own managed PIDs
+        let ownBrowserPid = _browserPid
+        let ownDarcPid = darcAppRef?.processIdentifier ?? -1
+
+        var zombies: [ZombieProcess] = []
+
+        for line in output.components(separatedBy: .newlines) {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard let spaceIdx = trimmed.firstIndex(of: " ") else { continue }
+            guard let pid = Int32(trimmed[trimmed.startIndex..<spaceIdx]) else { continue }
+            let comm = String(trimmed[trimmed.index(after: spaceIdx)...]).trimmingCharacters(in: .whitespaces)
+
+            let isHelium = comm.hasSuffix("/Helium") || comm == "Helium"
+            let isDarc = comm.hasSuffix("/app_mode_loader") || comm == "app_mode_loader"
+
+            guard isHelium || isDarc else { continue }
+            guard pid != ownBrowserPid && pid != ownDarcPid else { continue }
+            // Don't include our own launcher process
+            guard pid != ProcessInfo.processInfo.processIdentifier else { continue }
+
+            // Try to get command-line args to extract --user-data-dir
+            let profileDir = Self.extractUserDataDir(pid: pid)
+            let name = isHelium ? "Helium" : "Darc (app_mode_loader)"
+            zombies.append(ZombieProcess(pid: pid, name: name, profileDir: profileDir))
+        }
+
+        return zombies
+    }
+
+    /// Extract the --user-data-dir value from a process's command-line arguments using sysctl.
+    private static func extractUserDataDir(pid: pid_t) -> String? {
+        // Use ps to get full command line
+        let pipe = Pipe()
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: "/bin/ps")
+        proc.arguments = ["-p", "\(pid)", "-o", "args="]
+        proc.standardOutput = pipe
+        proc.standardError = FileHandle.nullDevice
+        do { try proc.run() } catch { return nil }
+        proc.waitUntilExit()
+
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        guard let args = String(data: data, encoding: .utf8) else { return nil }
+
+        // Find --user-data-dir=...
+        for part in args.components(separatedBy: " ") {
+            if part.hasPrefix("--user-data-dir=") {
+                return String(part.dropFirst("--user-data-dir=".count))
+            }
+        }
+        return nil
+    }
+
+    /// Kill the given zombie processes.
+    func killZombieProcesses(_ zombies: [ZombieProcess]) {
+        for z in zombies {
+            kill(z.pid, SIGTERM)
+            appendLog("launcher", "Killed zombie \(z.name) (pid=\(z.pid))")
+        }
+        // Give them a moment, then SIGKILL any survivors
+        DispatchQueue.global().asyncAfter(deadline: .now() + 2) {
+            for z in zombies {
+                if kill(z.pid, 0) == 0 {
+                    kill(z.pid, SIGKILL)
+                }
+            }
+        }
+    }
+}
+
 /// Thread-safe storage for CDP pipe handles.
 private class CDPHandles: @unchecked Sendable {
     var writeHandle: FileHandle?

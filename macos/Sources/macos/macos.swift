@@ -58,8 +58,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         renderMenuLabels()
         // Do expensive init off main thread
         DispatchQueue.global(qos: .userInitiated).async {
-            ExternalState.shared.updateAll()
-            _ = ExternalState.shared.launchBrowserStack()
+            let state = ExternalState.shared
+            state.updateAll()
+
+            // Check for zombie Helium/Darc processes before launching
+            let zombies = state.findZombieProcesses()
+            if !zombies.isEmpty {
+                let sem = DispatchSemaphore(value: 0)
+                Task { @MainActor in
+                    self.showZombieAlert(zombies)
+                    sem.signal()
+                }
+                sem.wait()
+            }
+
+            _ = state.launchBrowserStack()
             Task { @MainActor in self.renderMenuLabels() }
         }
     }
@@ -586,6 +599,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         state.setBoolSetting("chrome_was_running", state.chromeRunning)
         state.stopChrome()  // stopChrome calls stopDarc internally
         NSApp.terminate(nil)
+    }
+
+    // MARK: - Zombie process alert
+
+    private func showZombieAlert(_ zombies: [ExternalState.ZombieProcess]) {
+        guard !zombies.isEmpty else { return }
+
+        let descriptions = zombies.map { z in
+            var desc = "\(z.name) (pid \(z.pid))"
+            if let profile = z.profileDir {
+                // Show just the profile folder name for brevity
+                let profileName = (profile as NSString).lastPathComponent
+                desc += " — profile: \(profileName)"
+            }
+            return desc
+        }
+
+        let alert = NSAlert()
+        alert.messageText = "Stale Browser Processes Found"
+        alert.informativeText = "The following Helium/Darc processes from a previous session are still running:\n\n"
+            + descriptions.joined(separator: "\n")
+            + "\n\nWould you like to terminate them before launching?"
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Kill All")
+        alert.addButton(withTitle: "Ignore")
+
+        NSApp.activate(ignoringOtherApps: true)
+        let response = alert.runModal()
+        if response == .alertFirstButtonReturn {
+            ExternalState.shared.killZombieProcesses(zombies)
+            // Wait briefly for processes to exit
+            Thread.sleep(forTimeInterval: 1.0)
+        }
     }
 
     // MARK: - Background state refresh
