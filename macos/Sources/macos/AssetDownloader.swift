@@ -47,8 +47,10 @@ func downloadSourceAssetsIfNeeded(dataURL: URL, log: @escaping (String, String) 
     }
     semaphore.wait()
 
+    let cancel = ui.cancellation
     let totalAssets = Double(pending.count)
     for (index, asset) in pending.enumerated() {
+        if cancel.isCancelled { break }
         DispatchQueue.main.async {
             ui.update(status: "Downloading \(asset.name)...", progress: (Double(index) / totalAssets) * 100)
         }
@@ -67,7 +69,7 @@ func downloadSourceAssetsIfNeeded(dataURL: URL, log: @escaping (String, String) 
             }
         }, delegateQueue: nil)
 
-        let task = session.downloadTask(with: asset.url) { tempURL, _, error in
+        let task = session.downloadTask(with: asset.url) { [cancel] tempURL, _, error in
             if let error {
                 downloadError = error
             } else if let tempURL {

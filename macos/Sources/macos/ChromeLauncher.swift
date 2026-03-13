@@ -8,11 +8,17 @@ extension ExternalState {
     /// Command-line flags passed to Chrome on every launch.
     static let chromeFlags: [String] = [
         "--silent-launch",
-        "--remote-debugging-port=9226",
         "--disable-features=CADisplayLinkInBrowser",
         "--remote-allow-origins=https://localhost:5194",
-        "--no-default-browser-check"
+        "--no-default-browser-check",
+        "--disable-component-update"
     ]
+
+    /// Path to the Unix domain socket used for Chrome DevTools debugging.
+    /// Lives under sockets/ in the user app data directory.
+    static var debugSocketPath: String {
+        appDataURL.appendingPathComponent("sockets/chrome-debug.sock").path
+    }
 
     func startChrome() -> String? {
         // Re-check if the configured chrome is available (it may have been downloaded since last check)
@@ -21,13 +27,19 @@ extension ExternalState {
         let profileName = selectedProfileName()
         let profileDir = Self.appDataURL.appendingPathComponent("profiles/\(profileName)", isDirectory: true)
         if !FileManager.default.fileExists(atPath: profileDir.path) {
-            // Bootstrap from template if available
             if let err = createProfile(name: profileName) { return err }
         }
 
+        // Ensure sockets directory exists for the debug pipe
+        let socketsDir = Self.appDataURL.appendingPathComponent("sockets", isDirectory: true)
+        try? FileManager.default.createDirectory(at: socketsDir, withIntermediateDirectories: true)
+
         guard let chrome = preferredChrome() else { return "No supported Chrome installation found" }
 
-        var args = ["--user-data-dir=\(profileDir.path)"] + Self.chromeFlags
+        var args = [
+            "--user-data-dir=\(profileDir.path)",
+            "--remote-debugging-pipe"
+        ] + Self.chromeFlags
         if boolSetting("chrome_headless", default: true) { args.append("--headless") }
 
         do {
