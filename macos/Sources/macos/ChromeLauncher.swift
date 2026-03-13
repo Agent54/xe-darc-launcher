@@ -26,6 +26,7 @@ extension ExternalState {
         "--disable-features=CADisplayLinkInBrowser",
         "--remote-allow-origins=https://localhost:5194",
         "--no-default-browser-check"
+        "--flag-switches-begin --enable-features=AppShimNotificationAttribution,DesktopPWAsAdditionalWindowingControls,DesktopPWAsLinkCapturingWithScopeExtensions,DesktopPWAsSubApps,IsolatedWebAppDevMode,IsolatedWebApps,OverscrollEffectOnNonRootScrollers,UseAdHocSigningForWebAppShims,PwaNavigationCapturing,UnframedIwa,WebAppBorderless,WebAppPredictableAppUpdating --disable-features=CADisplayLinkInBrowser --flag-switches-end"
     ]
 
     /// Path to the Unix domain socket used for Chrome DevTools debugging.
@@ -230,4 +231,3 @@ private class CDPHandles: @unchecked Sendable {
 //   --silent-launch \
 //   --no-first-run \
 //   --headless \
-//   --flag-switches-begin --enable-features=AppShimNotificationAttribution,DesktopPWAsAdditionalWindowingControls,DesktopPWAsLinkCapturingWithScopeExtensions,DesktopPWAsSubApps,IsolatedWebAppDevMode,IsolatedWebApps,OverscrollEffectOnNonRootScrollers,UseAdHocSigningForWebAppShims,PwaNavigationCapturing,UnframedIwa,WebAppBorderless,WebAppPredictableAppUpdating --disable-features=CADisplayLinkInBrowser --flag-switches-end \
