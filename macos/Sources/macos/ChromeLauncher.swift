@@ -56,6 +56,12 @@ extension ExternalState {
         ] + Self.chromeFlags
         if boolSetting("chrome_headless", default: true) { args.append("--headless") }
 
+        // Install the IWA bundle if it exists
+        let iwaPath = Self.appDataURL.appendingPathComponent("darc.swbn").path
+        if FileManager.default.fileExists(atPath: iwaPath) {
+            args.append("--install-isolated-web-app-from-file=\(iwaPath)")
+        }
+
         // Create pipe pairs for Chrome DevTools Protocol pipe transport.
         // Chrome reads commands from fd 3 and writes responses to fd 4.
         // We keep the other ends for our launcher / future workerd bridge.
@@ -211,10 +217,8 @@ private class CDPHandles: @unchecked Sendable {
 //   --user-data-dir="/Users/jan/Library/Application Support/dev.xe.darc/beat" \
 //   --no-first-run \
 //   --disable-extensions \
-//   --install-isolated-web-app-from-file=/Users/jan/Library/Application\ Support/dev.xe.darc/darc.swbn \
 //   --screenshot=/dev/null --no-first-run about:blank
 
-// mkdir -p /Users/jan/Library/Application\ Support/dev.xe.darc/beat/Default/
 // cp -f /Users/jan/Dev/xe/darc-launcher/macos/Preferences.json /Users/jan/Library/Application\ Support/dev.xe.darc/beat/Default/Preferences.json
 
 // /Users/jan/Library/Application\ Support/dev.xe.darc/Helium.app/Contents/MacOS/Helium \
@@ -227,4 +231,3 @@ private class CDPHandles: @unchecked Sendable {
 //   --no-first-run \
 //   --headless \
 //   --flag-switches-begin --enable-features=AppShimNotificationAttribution,DesktopPWAsAdditionalWindowingControls,DesktopPWAsLinkCapturingWithScopeExtensions,DesktopPWAsSubApps,IsolatedWebAppDevMode,IsolatedWebApps,OverscrollEffectOnNonRootScrollers,UseAdHocSigningForWebAppShims,PwaNavigationCapturing,UnframedIwa,WebAppBorderless,WebAppPredictableAppUpdating --disable-features=CADisplayLinkInBrowser --flag-switches-end \
-//   --install-isolated-web-app-from-file=/Users/jan/Library/Application\ Support/dev.xe.darc/darc.swbn
