@@ -171,6 +171,17 @@ extension ExternalState {
                 return
             }
 
+            // Close any Finder windows that may have opened for the shim's source folder
+            let script = """
+            tell application "Finder"
+                close (every window whose name is "Helium Apps" or name is "Chromium Apps.localized")
+            end tell
+            """
+            if let appleScript = NSAppleScript(source: script) {
+                var error: NSDictionary?
+                appleScript.executeAndReturnError(&error)
+            }
+
             // Stop Chrome
             self.appendLog("launcher", "Stopping Chrome for Preferences.json refresh...")
             self.stopChrome()
