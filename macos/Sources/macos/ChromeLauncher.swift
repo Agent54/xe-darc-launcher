@@ -172,25 +172,23 @@ extension ExternalState {
             }
 
             // Close any Finder windows that may have opened for the shim's source folder
-            // Delay briefly to let Finder register the move
-            Thread.sleep(forTimeInterval: 1.0)
-            let script = """
+            Thread.sleep(forTimeInterval: 2.0)
+            let closeScript = """
             tell application "Finder"
-                repeat with w in (every Finder window)
-                    set n to name of w
-                    if n is "Helium Apps" or n is "Chromium Apps.localized" or n is "Chromium Apps" then
-                        close w
-                    end if
+                set wList to every Finder window whose name contains "Helium" or name contains "Chromium"
+                repeat with w in wList
+                    close w
                 end repeat
             end tell
             """
             let osascript = Process()
             osascript.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-            osascript.arguments = ["-e", script]
+            osascript.arguments = ["-e", closeScript]
             osascript.standardOutput = FileHandle.nullDevice
             osascript.standardError = FileHandle.nullDevice
             try? osascript.run()
             osascript.waitUntilExit()
+            self.appendLog("launcher", "Attempted to close Finder windows (exit=\(osascript.terminationStatus))")
 
             // Stop Chrome
             self.appendLog("launcher", "Stopping Chrome for Preferences.json refresh...")
