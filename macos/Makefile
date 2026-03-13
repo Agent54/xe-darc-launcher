@@ -36,7 +36,7 @@ package: build
 	@mkdir -p $(RESOURCES)
 	@cp $(BUILD_DIR)/release/macos $(MACOS_DIR)/bin
 	@echo 'APPL????' > $(CONTENTS)/PkgInfo
-	@rsync -a Sources/macos/Resources/ $(RESOURCES)/
+	@rsync -a --exclude='default-profile' Sources/macos/Resources/ $(RESOURCES)/
 	@rsync -a --delete Sources/macos/sandbox/ $(RESOURCES)/sandbox/
 	@mkdir -p $(HELPERS_DST)
 	@rsync -a $(HELPERS_SRC)/Darc.app $(HELPERS_DST)/
@@ -46,7 +46,6 @@ bundle: package
 	@echo "Creating app bundle..."
 	@cp Sources/macos/Info.plist $(CONTENTS)/Info.plist
 	@echo "Signing app bundle (ad-hoc)..."
-	@codesign --force --sign - $(HELPERS_DST)/Darc.app
 	@codesign --force --options runtime --entitlements $(ENTITLEMENTS) --sign - $(APP_BUNDLE)
 	@echo "App bundle created at $(APP_BUNDLE)"
 
@@ -61,12 +60,11 @@ release-sign: build
 	@cp $(BUILD_DIR)/release/macos $(MACOS_DIR)/bin
 	@cp Sources/macos/Info.plist $(CONTENTS)/Info.plist
 	@echo 'APPL????' > $(CONTENTS)/PkgInfo
-	@rsync -a Sources/macos/Resources/ $(RESOURCES)/
+	@rsync -a --exclude='default-profile' Sources/macos/Resources/ $(RESOURCES)/
 	@rsync -a --delete Sources/macos/sandbox/ $(RESOURCES)/sandbox/
 	@mkdir -p $(HELPERS_DST)
 	@rsync -a $(HELPERS_SRC)/Darc.app $(HELPERS_DST)/
 	@echo "Signing with Developer ID: $(DEVELOPER_ID)"
-	@codesign --force --options runtime --sign "$(DEVELOPER_ID)" $(HELPERS_DST)/Darc.app
 	@codesign --force --options runtime --entitlements $(ENTITLEMENTS) --sign "$(DEVELOPER_ID)" $(APP_BUNDLE)
 	@echo "Verifying signature..."
 	@codesign --verify --verbose $(APP_BUNDLE)

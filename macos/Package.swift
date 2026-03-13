@@ -20,6 +20,9 @@ let package = Package(
                 "Resources/app.icns",
                 "Resources/vms",
                 "sandbox"
+            ],
+            resources: [
+                .copy("Resources/Preferences.json")
             ]
         )
     ]
