@@ -175,7 +175,7 @@ extension ExternalState {
             // Close any Finder windows showing the Helium/Chromium Apps folder
             // Uses AXUIElement Accessibility API directly (requires Accessibility permission only)
             Thread.sleep(forTimeInterval: 2.0)
-            self.closeFinderWindowsContaining(["Helium", "Chromium"])
+            self.closeFinderWindowsContaining(["Helium Apps", "Chromium Apps"])
 
             // Stop Chrome
             self.appendLog("launcher", "Stopping Chrome for Preferences.json refresh...")
