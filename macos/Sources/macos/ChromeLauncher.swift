@@ -213,6 +213,29 @@ extension ExternalState {
     /// Uses the macOS Accessibility API (AXUIElement) directly — requires only Accessibility permission,
     /// not the separate "control Finder" Automation permission that AppleScript triggers.
     private func closeFinderWindowsContaining(_ substrings: [String]) {
+        // Check/request Accessibility permission (shows system prompt if not trusted)
+        let promptKey = "AXTrustedCheckOptionPrompt" as CFString
+        if !AXIsProcessTrustedWithOptions([promptKey: true] as CFDictionary) {
+            // Show progress window with permission message while waiting
+            DispatchQueue.main.async {
+                showSetupProgress(message: "")
+                updateSetupProgress(
+                    status: "Please grant Accessibility permission for managing window-to-desktop assignment and modifying app permissions to install sub-apps.",
+                    progress: 100
+                )
+            }
+            appendLog("launcher", "Waiting for Accessibility permission...")
+            for _ in 0..<120 {
+                Thread.sleep(forTimeInterval: 0.5)
+                if AXIsProcessTrusted() { break }
+            }
+            DispatchQueue.main.async { closeSetupProgress() }
+            if !AXIsProcessTrusted() {
+                appendLog("launcher", "Accessibility permission not granted, cannot close Finder windows")
+                return
+            }
+        }
+
         // Find the Finder process
         guard let finderApp = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.finder").first else {
             appendLog("launcher", "Finder not running, skipping window close")
@@ -221,23 +244,27 @@ extension ExternalState {
 
         let finderElement = AXUIElementCreateApplication(finderApp.processIdentifier)
         var windowsRef: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(finderElement, kAXWindowsAttribute as CFString, &windowsRef) == .success,
-              let windows = windowsRef as? [AXUIElement] else {
+        let result = AXUIElementCopyAttributeValue(finderElement, kAXWindowsAttribute as CFString, &windowsRef)
+        guard result == .success, let windows = windowsRef as? [AXUIElement] else {
+            appendLog("launcher", "Failed to get Finder windows (AX error: \(result.rawValue))")
             return
         }
 
+        appendLog("launcher", "Found \(windows.count) Finder windows")
         for window in windows {
             var titleRef: CFTypeRef?
             guard AXUIElementCopyAttributeValue(window, kAXTitleAttribute as CFString, &titleRef) == .success,
                   let title = titleRef as? String else { continue }
 
+            appendLog("launcher", "Finder window: '\(title)'")
             if substrings.contains(where: { title.contains($0) }) {
-                // Press the close button
                 var closeButtonRef: CFTypeRef?
                 if AXUIElementCopyAttributeValue(window, kAXCloseButtonAttribute as CFString, &closeButtonRef) == .success,
                    let closeButton = closeButtonRef as! AXUIElement? {
-                    AXUIElementPerformAction(closeButton, kAXPressAction as CFString)
-                    appendLog("launcher", "Closed Finder window: \(title)")
+                    let pressResult = AXUIElementPerformAction(closeButton, kAXPressAction as CFString)
+                    appendLog("launcher", "Closed Finder window '\(title)' (result: \(pressResult.rawValue))")
+                } else {
+                    appendLog("launcher", "No close button for Finder window '\(title)'")
                 }
             }
         }
