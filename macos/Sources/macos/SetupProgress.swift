@@ -83,9 +83,11 @@ func showSetupProgress(message: String) {
     panel.isReleasedWhenClosed = false
     panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
     panel.hidesOnDeactivate = false
+    panel.appearance = NSAppearance(named: .darkAqua)
 
     let vfx = NSVisualEffectView(frame: NSRect(x: 0, y: 0, width: w, height: h))
-    vfx.material = .hudWindow
+    vfx.appearance = NSAppearance(named: .darkAqua)
+    vfx.material = .underPageBackground
     vfx.blendingMode = .behindWindow
     vfx.state = .active
     vfx.wantsLayer = true

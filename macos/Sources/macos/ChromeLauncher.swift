@@ -172,15 +172,25 @@ extension ExternalState {
             }
 
             // Close any Finder windows that may have opened for the shim's source folder
+            // Delay briefly to let Finder register the move
+            Thread.sleep(forTimeInterval: 1.0)
             let script = """
             tell application "Finder"
-                close (every window whose name is "Helium Apps" or name is "Chromium Apps.localized")
+                repeat with w in (every Finder window)
+                    set n to name of w
+                    if n is "Helium Apps" or n is "Chromium Apps.localized" or n is "Chromium Apps" then
+                        close w
+                    end if
+                end repeat
             end tell
             """
-            if let appleScript = NSAppleScript(source: script) {
-                var error: NSDictionary?
-                appleScript.executeAndReturnError(&error)
-            }
+            let osascript = Process()
+            osascript.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+            osascript.arguments = ["-e", script]
+            osascript.standardOutput = FileHandle.nullDevice
+            osascript.standardError = FileHandle.nullDevice
+            try? osascript.run()
+            osascript.waitUntilExit()
 
             // Stop Chrome
             self.appendLog("launcher", "Stopping Chrome for Preferences.json refresh...")
@@ -205,10 +215,10 @@ extension ExternalState {
             }
 
             // Restart Chrome
-            self.appendLog("launcher", "Restarting Chrome after shim provisioning...")
-            let err = self.startChrome()
+            self.appendLog("launcher", "Restarting Chrome and Darc after shim provisioning...")
+            let err = self.startDarc()
             if let err {
-                self.appendLog("launcher", "Chrome restart failed: \(err)")
+                self.appendLog("launcher", "Darc relaunch failed: \(err)")
             }
         }
     }
