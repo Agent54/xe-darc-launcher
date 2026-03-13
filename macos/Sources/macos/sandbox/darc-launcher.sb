@@ -43,8 +43,12 @@
 ;; --- Application Support data ---
 ;; Allow reading and writing profiles, VMs, and settings
 ;; Using HOME parameter for portability
-(allow file-read* (subpath (string-append (param "HOME") "/Library/Application Support/com.jan.darc-launcher")))
-(allow file-write* (subpath (string-append (param "HOME") "/Library/Application Support/com.jan.darc-launcher")))
+(allow file-read* (subpath (string-append (param "HOME") "/Library/Application Support/dev.xe.darc")))
+(allow file-write* (subpath (string-append (param "HOME") "/Library/Application Support/dev.xe.darc")))
+
+;; Allow executing Helium.app (Chrome) from the app data directory
+(allow process-exec (subpath (string-append (param "HOME") "/Library/Application Support/dev.xe.darc")))
+(allow file-map-executable (subpath (string-append (param "HOME") "/Library/Application Support/dev.xe.darc")))
 
 ;; --- Colima/Lima data directories ---
 ;; Colima stores VM state, config, and sockets in ~/.colima and ~/.lima

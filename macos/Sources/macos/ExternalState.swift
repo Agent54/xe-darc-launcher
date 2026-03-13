@@ -113,6 +113,8 @@ final class ExternalState: @unchecked Sendable {
 
     /// Managed long-running subprocesses keyed by name
     var subprocesses: [String: Process] = [:]
+    /// PID for the browser process spawned via posix_spawn (not tracked by Process)
+    var _browserPid: pid_t = 0
     private var darcApp: NSRunningApplication?
     /// Public read-only access to the Darc NSRunningApplication reference for activation.
     var darcAppRef: NSRunningApplication? { darcApp }
@@ -128,7 +130,15 @@ final class ExternalState: @unchecked Sendable {
         darcApp = nil
         return false
     }
-    var chromeRunning: Bool { isSubprocessRunning("browser") }
+    var chromeRunning: Bool {
+        // Check posix_spawn'd browser pid
+        if _browserPid > 0 {
+            // kill(pid, 0) checks if process exists without sending a signal
+            if kill(_browserPid, 0) == 0 { return true }
+            _browserPid = 0
+        }
+        return isSubprocessRunning("browser")
+    }
 
     private var lastColimaRefresh = Date.distantPast
     private let minColimaRefreshInterval: TimeInterval = 15
@@ -753,6 +763,11 @@ final class ExternalState: @unchecked Sendable {
         if let process = subprocesses[name] {
             process.terminate()
             subprocesses.removeValue(forKey: name)
+        }
+        // Also kill posix_spawn'd browser process
+        if name == "browser" && _browserPid > 0 {
+            kill(_browserPid, SIGTERM)
+            _browserPid = 0
         }
     }
 

@@ -63,7 +63,8 @@ extension ExternalState {
         let fromChrome = Pipe()  // Chrome writes on fd 4 → we read
 
         do {
-            let process = try spawnLongRunningProcessWithPipes(
+            // spawnLongRunningProcessWithPipes closes the child-side handles after spawn
+            let _ = try spawnLongRunningProcessWithPipes(
                 executable: chrome.executablePath,
                 arguments: args,
                 source: "browser",
@@ -72,17 +73,12 @@ extension ExternalState {
                     4: fromChrome.fileHandleForWriting
                 ]
             )
-            subprocesses["browser"] = process
 
             // Store the pipe handles for later CDP communication (e.g. workerd bridge)
             cdpWriteHandle = toChrome.fileHandleForWriting
             cdpReadHandle = fromChrome.fileHandleForReading
 
-            // Close the child-side ends in our process
-            toChrome.fileHandleForReading.closeFile()
-            fromChrome.fileHandleForWriting.closeFile()
-
-            appendLog("launcher", "Chrome started with debug pipe (\(chrome.name), pid=\(process.processIdentifier), isRunning=\(chromeRunning))")
+            appendLog("launcher", "Chrome started with debug pipe (\(chrome.name), pid=\(_browserPid), isRunning=\(chromeRunning))")
             print("[ExternalState] Chrome started, isRunning=\(chromeRunning)")
             return nil
         } catch {
@@ -100,43 +96,105 @@ extension ExternalState {
         print("[ExternalState] Chrome stopped (wasRunning=\(wasRunning))")
     }
     /// Spawn a process with extra file descriptors mapped into the child using posix_spawn.
-    /// Uses posix_spawn_file_actions_adddup2 for reliable fd mapping — no shell involved.
+    /// Uses posix_spawn_file_actions_adddup2 for reliable fd mapping.
+    /// Swift's Process uses POSIX_SPAWN_CLOEXEC_DEFAULT which closes all unmapped fds,
+    /// so we must use posix_spawn directly to pass fds 3/4 to the child.
     func spawnLongRunningProcessWithPipes(executable: String, arguments: [String], source: String, extraFDs: [Int32: FileHandle]) throws -> Process {
-        // We can't add extra fds to Swift's Process, so we use posix_spawn directly
-        // and wrap the pid in a monitoring Process-like mechanism via the existing
-        // spawnLongRunningProcess. Instead, we'll fork+exec with dup2.
-        //
-        // Actually, the simplest reliable approach: before calling Process.run(),
-        // dup2 the pipe fds to 3 and 4 in the PARENT process. Since Process.run()
-        // calls fork() internally, the child inherits all open fds that don't have
-        // close-on-exec set. We just need to clear FD_CLOEXEC on fds 3 and 4.
+        var env = ProcessInfo.processInfo.environment
+        if env["HOME"] == nil { env["HOME"] = NSHomeDirectory() }
+        env["PATH"] = (["/opt/homebrew/bin", "/usr/local/bin", env["PATH"] ?? "/usr/bin:/bin"]).joined(separator: ":")
+        env.removeValue(forKey: "__CFBundleIdentifier")
 
-        // dup2 the source fds to the target fd numbers (3, 4) in this process
+        // Build argv: [executable, args..., NULL]
+        let allArgs = [executable] + arguments
+        let cArgs = allArgs.map { strdup($0) } + [nil]
+        defer { for p in cArgs { if let p { free(p) } } }
+
+        // Build envp: ["KEY=VALUE", ..., NULL]
+        let cEnv = env.map { strdup("\($0.key)=\($0.value)") } + [nil]
+        defer { for p in cEnv { if let p { free(p) } } }
+
+        // Set up stdout/stderr pipe for log capture
+        let outputPipe = Pipe()
+
+        // Configure posix_spawn file actions
+        var fileActions: posix_spawn_file_actions_t?
+        posix_spawn_file_actions_init(&fileActions)
+        defer { posix_spawn_file_actions_destroy(&fileActions) }
+
+        // Map stdout and stderr to our output pipe
+        let outWriteFD = outputPipe.fileHandleForWriting.fileDescriptor
+        posix_spawn_file_actions_adddup2(&fileActions, outWriteFD, STDOUT_FILENO)
+        posix_spawn_file_actions_adddup2(&fileActions, outWriteFD, STDERR_FILENO)
+
+        // Map extra fds (e.g. 3 for CDP read, 4 for CDP write)
         for (targetFD, handle) in extraFDs {
-            let srcFD = handle.fileDescriptor
-            if srcFD != targetFD {
-                let result = dup2(srcFD, targetFD)
-                guard result != -1 else {
-                    throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno), userInfo: [
-                        NSLocalizedDescriptionKey: "dup2(\(srcFD), \(targetFD)) failed: \(String(cString: strerror(errno)))"
-                    ])
-                }
-            }
-            // Clear close-on-exec so the fd survives fork+exec
-            let flags = fcntl(targetFD, F_GETFD)
-            if flags != -1 {
-                _ = fcntl(targetFD, F_SETFD, flags & ~FD_CLOEXEC)
+            posix_spawn_file_actions_adddup2(&fileActions, handle.fileDescriptor, targetFD)
+        }
+
+        // Configure spawn attributes — do NOT set POSIX_SPAWN_CLOEXEC_DEFAULT
+        var attrs: posix_spawnattr_t?
+        posix_spawnattr_init(&attrs)
+        defer { posix_spawnattr_destroy(&attrs) }
+
+        var pid: pid_t = 0
+        let spawnResult = cArgs.withUnsafeBufferPointer { argsBuf in
+            cEnv.withUnsafeBufferPointer { envBuf in
+                posix_spawnp(
+                    &pid,
+                    executable,
+                    &fileActions,
+                    &attrs,
+                    UnsafeMutablePointer(mutating: argsBuf.baseAddress!),
+                    UnsafeMutablePointer(mutating: envBuf.baseAddress!)
+                )
             }
         }
 
-        let process = try spawnLongRunningProcess(executable: executable, arguments: arguments, source: source)
-
-        // Close fds 3 and 4 in the parent — Chrome has them in the child
-        for (targetFD, _) in extraFDs {
-            close(targetFD)
+        guard spawnResult == 0 else {
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(spawnResult), userInfo: [
+                NSLocalizedDescriptionKey: "posix_spawnp failed: \(String(cString: strerror(spawnResult)))"
+            ])
         }
 
-        return process
+        // Close parent-side ends of fds that belong to the child
+        outputPipe.fileHandleForWriting.closeFile()
+        for (_, handle) in extraFDs {
+            handle.closeFile()
+        }
+
+        // Set up log capture from the output pipe
+        outputPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
+            let data = handle.availableData
+            guard !data.isEmpty, let text = String(data: data, encoding: .utf8) else { return }
+            for line in text.components(separatedBy: .newlines) {
+                let t = line.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !t.isEmpty { self?.appendLog(source, t) }
+            }
+        }
+
+        // Create a Process object to track the pid for subprocess management.
+        // We use a lightweight wrapper: monitor the pid with waitpid in background.
+        let process = Process()
+        // Store the pid for terminateSubprocess to use
+        appendLog("launcher", "\(source) spawned via posix_spawn (pid=\(pid))")
+
+        // Monitor child exit in background
+        let capturedPid = pid
+        DispatchQueue.global().async { [weak self] in
+            var status: Int32 = 0
+            waitpid(capturedPid, &status, 0)
+            outputPipe.fileHandleForReading.readabilityHandler = nil
+            let exitCode = (status & 0x7f) == 0 ? Int32((status >> 8) & 0xff) : Int32(-1)
+            self?.appendLog(source, "Process exited with code \(exitCode)")
+            self?.appendLog("launcher", "\(source) process exited (code=\(exitCode))")
+            print("[ExternalState] \(source) process exited (code=\(exitCode))")
+        }
+
+        // We can't return a real Process object since we used posix_spawn directly.
+        // Store the pid directly for kill management.
+        _browserPid = pid
+        return process  // Placeholder — terminateSubprocess should use _browserPid
     }
 }
 
