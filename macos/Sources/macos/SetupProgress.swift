@@ -36,6 +36,29 @@ private let _cancellation = CancellationToken()
 /// The shared cancellation token for the current setup. Check `isCancelled` from any thread.
 var setupCancellation: CancellationToken { _cancellation }
 
+/// Load the app icon from the .app bundle's Resources directory.
+/// Tries multiple strategies: Bundle.main.resourceURL, then navigating from the executable path.
+private func loadAppIcon() -> NSImage? {
+    let iconName = "app.icns"
+
+    // Strategy 1: Bundle.main.resourceURL (works when launched as .app)
+    if let resourceURL = Bundle.main.resourceURL {
+        let iconURL = resourceURL.appendingPathComponent(iconName)
+        if let icon = NSImage(contentsOf: iconURL) { return icon }
+    }
+
+    // Strategy 2: Navigate from executable: Contents/MacOS/bin -> Contents/Resources/
+    let execURL = Bundle.main.executableURL ?? URL(fileURLWithPath: ProcessInfo.processInfo.arguments[0])
+    let resourcesURL = execURL
+        .deletingLastPathComponent()          // MacOS/
+        .deletingLastPathComponent()          // Contents/
+        .appendingPathComponent("Resources")  // Contents/Resources/
+    let iconURL = resourcesURL.appendingPathComponent(iconName)
+    if let icon = NSImage(contentsOf: iconURL) { return icon }
+
+    return nil
+}
+
 /// Show the setup progress window. Call from main thread.
 @MainActor
 func showSetupProgress(message: String) {
@@ -76,8 +99,7 @@ func showSetupProgress(message: String) {
     // Large centered app icon
     let iconSize: CGFloat = 80
     let iconView = NSImageView(frame: NSRect(x: (w - iconSize) / 2, y: h - iconSize - 50, width: iconSize, height: iconSize))
-    if let resourceURL = Bundle.main.resourceURL,
-       let icon = NSImage(contentsOf: resourceURL.appendingPathComponent("app.icns")) {
+    if let icon = loadAppIcon() {
         iconView.image = icon
     } else {
         iconView.image = NSApp.applicationIconImage
@@ -133,11 +155,24 @@ func showSetupProgress(message: String) {
     vfx.addSubview(cancelButton)
 
     // Set the app icon for Dock display
-    if let resourceURL = Bundle.main.resourceURL,
-       let icon = NSImage(contentsOf: resourceURL.appendingPathComponent("app.icns")) {
+    if let icon = loadAppIcon() {
         NSApp.applicationIconImage = icon
     }
-    // Temporarily show Dock icon so user can click to bring window forward
+    // Set the app name BEFORE showing in Dock (macOS captures process name at activation)
+    ProcessInfo.processInfo.processName = "Darc"
+    // Set up a minimal main menu so the menu bar shows "Darc" instead of "bin"
+    if NSApp.mainMenu == nil || NSApp.mainMenu?.items.isEmpty == true {
+        let mainMenu = NSMenu()
+        let appMenuItem = NSMenuItem()
+        mainMenu.addItem(appMenuItem)
+        let appMenu = NSMenu(title: "Darc")
+        appMenu.addItem(withTitle: "About Darc", action: nil, keyEquivalent: "")
+        appMenu.addItem(NSMenuItem.separator())
+        appMenu.addItem(withTitle: "Quit Darc", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        appMenuItem.submenu = appMenu
+        NSApp.mainMenu = mainMenu
+    }
+    // Now show Dock icon after process name and menu are configured
     NSApp.setActivationPolicy(.regular)
     panel.makeKeyAndOrderFront(nil)
     NSApp.activate(ignoringOtherApps: true)
