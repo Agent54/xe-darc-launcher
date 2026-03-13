@@ -23,15 +23,17 @@ extension ExternalState {
     /// Command-line flags passed to Chrome on every launch.
     static let chromeFlags: [String] = [
         "--silent-launch",
-        "--disable-features=CADisplayLinkInBrowser",
         "--remote-allow-origins=https://localhost:5194",
         "--no-default-browser-check",
-        "--flag-switches-begin",
         "--no-first-run",
+        "--flag-switches-begin",
         "--enable-features=AppShimNotificationAttribution,DesktopPWAsAdditionalWindowingControls,DesktopPWAsLinkCapturingWithScopeExtensions,DesktopPWAsSubApps,IsolatedWebAppDevMode,IsolatedWebApps,OverscrollEffectOnNonRootScrollers,UseAdHocSigningForWebAppShims,PwaNavigationCapturing,UnframedIwa,WebAppBorderless,WebAppPredictableAppUpdating",
         "--disable-features=CADisplayLinkInBrowser",
         "--flag-switches-end"
     ]
+    // DO NOT DELETE:
+    //   --remote-debugging-port=9226 \
+    //   --remote-allow-origins=https://localhost:5194 \
 
     /// Path to the Unix domain socket used for Chrome DevTools debugging.
     /// Lives under sockets/ in the user app data directory.
@@ -59,7 +61,7 @@ extension ExternalState {
             "--user-data-dir=\(profileDir.path)",
             "--remote-debugging-pipe"
         ] + Self.chromeFlags
-        if boolSetting("chrome_headless", default: true) { args.append("--headless") }
+        if boolSetting("chrome_headless", default: true) { args.append("--headless=new") }
 
         // Install the IWA bundle if it exists
         let iwaPath = Self.appDataURL.appendingPathComponent("darc.swbn").path
@@ -308,19 +310,3 @@ private class CDPHandles: @unchecked Sendable {
     var writeHandle: FileHandle?
     var readHandle: FileHandle?
 }
-
-// DO NOT DELETE:
-// # new method!!:
-// /Users/jan/Library/Application\ Support/dev.xe.darc/Helium.app/Contents/MacOS/Helium \
-//   --headless=new \
-//   --user-data-dir="/Users/jan/Library/Application Support/dev.xe.darc/beat" \
-//  \
-
-
-
-// /Users/jan/Library/Application\ Support/dev.xe.darc/Helium.app/Contents/MacOS/Helium \
-//   --user-data-dir="/Users/jan/Library/Application Support/dev.xe.darc/beat" \
-//   --remote-debugging-port=9226 \
-//   --disable-features=CADisplayLinkInBrowser \
-//   --remote-allow-origins=https://localhost:5194 \
-//   --headless \
