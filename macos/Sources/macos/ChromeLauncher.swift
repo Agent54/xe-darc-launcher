@@ -1,4 +1,6 @@
 import Foundation
+import AppKit
+import ApplicationServices
 
 // Chrome launch configuration and lifecycle management.
 // Edit the flags and arguments here to customise how Chrome is started.
@@ -172,28 +174,9 @@ extension ExternalState {
             }
 
             // Close any Finder windows showing the Helium/Chromium Apps folder
-            // Uses System Events (Accessibility permission) instead of Finder Automation permission
+            // Uses AXUIElement Accessibility API directly (requires Accessibility permission only)
             Thread.sleep(forTimeInterval: 2.0)
-            let closeScript = """
-            tell application "System Events"
-                tell process "Finder"
-                    set windowList to every window
-                    repeat with w in windowList
-                        set n to name of w
-                        if n contains "Helium" or n contains "Chromium" then
-                            click button 1 of w
-                        end if
-                    end repeat
-                end tell
-            end tell
-            """
-            let osascript = Process()
-            osascript.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-            osascript.arguments = ["-e", closeScript]
-            osascript.standardOutput = FileHandle.nullDevice
-            osascript.standardError = FileHandle.nullDevice
-            try? osascript.run()
-            osascript.waitUntilExit()
+            self.closeFinderWindowsContaining(["Helium", "Chromium"])
 
             // Stop Chrome
             self.appendLog("launcher", "Stopping Chrome for Preferences.json refresh...")
@@ -222,6 +205,40 @@ extension ExternalState {
             let err = self.startDarc()
             if let err {
                 self.appendLog("launcher", "Darc relaunch failed: \(err)")
+            }
+        }
+    }
+
+    /// Close Finder windows whose title contains any of the given substrings.
+    /// Uses the macOS Accessibility API (AXUIElement) directly — requires only Accessibility permission,
+    /// not the separate "control Finder" Automation permission that AppleScript triggers.
+    private func closeFinderWindowsContaining(_ substrings: [String]) {
+        // Find the Finder process
+        guard let finderApp = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.finder").first else {
+            appendLog("launcher", "Finder not running, skipping window close")
+            return
+        }
+
+        let finderElement = AXUIElementCreateApplication(finderApp.processIdentifier)
+        var windowsRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(finderElement, kAXWindowsAttribute as CFString, &windowsRef) == .success,
+              let windows = windowsRef as? [AXUIElement] else {
+            return
+        }
+
+        for window in windows {
+            var titleRef: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(window, kAXTitleAttribute as CFString, &titleRef) == .success,
+                  let title = titleRef as? String else { continue }
+
+            if substrings.contains(where: { title.contains($0) }) {
+                // Press the close button
+                var closeButtonRef: CFTypeRef?
+                if AXUIElementCopyAttributeValue(window, kAXCloseButtonAttribute as CFString, &closeButtonRef) == .success,
+                   let closeButton = closeButtonRef as! AXUIElement? {
+                    AXUIElementPerformAction(closeButton, kAXPressAction as CFString)
+                    appendLog("launcher", "Closed Finder window: \(title)")
+                }
             }
         }
     }

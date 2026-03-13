@@ -87,7 +87,7 @@ func showSetupProgress(message: String) {
 
     let vfx = NSVisualEffectView(frame: NSRect(x: 0, y: 0, width: w, height: h))
     vfx.appearance = NSAppearance(named: .darkAqua)
-    vfx.material = .underPageBackground
+    vfx.material = .hudWindow
     vfx.blendingMode = .behindWindow
     vfx.state = .active
     vfx.wantsLayer = true
@@ -95,6 +95,13 @@ func showSetupProgress(message: String) {
     vfx.layer?.masksToBounds = true
     vfx.autoresizingMask = [.width, .height]
     panel.contentView = vfx
+
+    // Add a dark overlay to make the background nearly black while keeping blur
+    let overlay = NSView(frame: NSRect(x: 0, y: 0, width: w, height: h))
+    overlay.wantsLayer = true
+    overlay.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.4).cgColor
+    overlay.autoresizingMask = [.width, .height]
+    vfx.addSubview(overlay)
 
     let pad: CGFloat = 40
 
