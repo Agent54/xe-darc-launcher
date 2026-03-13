@@ -7,7 +7,6 @@ import AppKit
 func downloadSourceAssetsIfNeeded(dataURL: URL, log: @escaping (String, String) -> Void) {
     let fm = FileManager.default
 
-    // Load sources.json from bundle — format: { "name": { "url": "...", "unzip": true/false } }
     guard let sourcesURL = Bundle.main.resourceURL?.appendingPathComponent("sources.json"),
           let sourcesData = try? Data(contentsOf: sourcesURL),
           let sources = try? JSONSerialization.jsonObject(with: sourcesData) as? [String: [String: Any]] else {
@@ -15,7 +14,6 @@ func downloadSourceAssetsIfNeeded(dataURL: URL, log: @escaping (String, String) 
         return
     }
 
-    // Build list of assets that need downloading
     struct AssetInfo {
         let name: String
         let url: URL
@@ -39,37 +37,39 @@ func downloadSourceAssetsIfNeeded(dataURL: URL, log: @escaping (String, String) 
 
     guard !pending.isEmpty else { return }
 
-    let ui = SetupProgressUI()
-    let semaphore = DispatchSemaphore(value: 0)
+    // Show progress on main thread (synchronous to ensure it's visible before we start)
+    let sem = DispatchSemaphore(value: 0)
     DispatchQueue.main.async {
-        ui.show(message: "Setting up Darc in \(dataURL.path)")
-        semaphore.signal()
+        showSetupProgress(message: "Setting up Darc in \(dataURL.path)")
+        sem.signal()
     }
-    semaphore.wait()
+    sem.wait()
 
-    let cancel = ui.cancellation
+    let cancel = setupCancellation
+
     let totalAssets = Double(pending.count)
     for (index, asset) in pending.enumerated() {
         if cancel.isCancelled { break }
+
         DispatchQueue.main.async {
-            ui.update(status: "Downloading \(asset.name)...", progress: (Double(index) / totalAssets) * 100)
+            updateSetupProgress(status: "Downloading \(asset.name)...", progress: (Double(index) / totalAssets) * 100)
         }
 
         log("launcher", "Downloading \(asset.name) from \(asset.url.absoluteString)")
 
-            let downloadSemaphore = DispatchSemaphore(value: 0)
-            nonisolated(unsafe) var downloadedFileURL: URL?
-            nonisolated(unsafe) var downloadError: Error?
+        let downloadSem = DispatchSemaphore(value: 0)
+        nonisolated(unsafe) var downloadedFileURL: URL?
+        nonisolated(unsafe) var downloadError: Error?
 
         let session = URLSession(configuration: .default, delegate: DownloadProgressDelegate { fraction in
             DispatchQueue.main.async {
                 let base = (Double(index) / totalAssets) * 100
                 let portion = (1.0 / totalAssets) * 100
-                ui.update(progress: base + fraction * portion)
+                updateSetupProgress(progress: base + fraction * portion)
             }
         }, delegateQueue: nil)
 
-        let task = session.downloadTask(with: asset.url) { [cancel] tempURL, _, error in
+        let task = session.downloadTask(with: asset.url) { tempURL, _, error in
             if let error {
                 downloadError = error
             } else if let tempURL {
@@ -78,10 +78,18 @@ func downloadSourceAssetsIfNeeded(dataURL: URL, log: @escaping (String, String) 
                 try? FileManager.default.moveItem(at: tempURL, to: stableTemp)
                 downloadedFileURL = stableTemp
             }
-            downloadSemaphore.signal()
+            downloadSem.signal()
         }
+        cancel.activeTask = task
         task.resume()
-        downloadSemaphore.wait()
+        downloadSem.wait()
+        cancel.activeTask = nil
+
+        if cancel.isCancelled {
+            // Clean up partial download in background
+            if let f = downloadedFileURL { try? fm.removeItem(at: f) }
+            break
+        }
 
         if let error = downloadError {
             log("launcher", "Failed to download \(asset.name): \(error.localizedDescription)")
@@ -95,18 +103,18 @@ func downloadSourceAssetsIfNeeded(dataURL: URL, log: @escaping (String, String) 
 
         if asset.unzip {
             DispatchQueue.main.async {
-                ui.update(status: "Extracting \(asset.name)...", progress: nil)
+                updateSetupProgress(status: "Extracting \(asset.name)...")
             }
-            let unzipProcess = Process()
-            unzipProcess.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
-            unzipProcess.arguments = ["-x", "-k", downloadedFile.path, dataURL.path]
+            let proc = Process()
+            proc.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
+            proc.arguments = ["-x", "-k", downloadedFile.path, dataURL.path]
             do {
-                try unzipProcess.run()
-                unzipProcess.waitUntilExit()
-                if unzipProcess.terminationStatus == 0 {
+                try proc.run()
+                proc.waitUntilExit()
+                if proc.terminationStatus == 0 {
                     log("launcher", "Extracted \(asset.name) to \(dataURL.path)")
                 } else {
-                    log("launcher", "ditto failed for \(asset.name) with exit code \(unzipProcess.terminationStatus)")
+                    log("launcher", "ditto failed for \(asset.name) with exit code \(proc.terminationStatus)")
                 }
             } catch {
                 log("launcher", "Failed to extract \(asset.name): \(error.localizedDescription)")
@@ -124,6 +132,6 @@ func downloadSourceAssetsIfNeeded(dataURL: URL, log: @escaping (String, String) 
     }
 
     DispatchQueue.main.async {
-        ui.close()
+        closeSetupProgress()
     }
 }

@@ -10,8 +10,7 @@ extension ExternalState {
         "--silent-launch",
         "--disable-features=CADisplayLinkInBrowser",
         "--remote-allow-origins=https://localhost:5194",
-        "--no-default-browser-check",
-        "--disable-component-update"
+        "--no-default-browser-check"
     ]
 
     /// Path to the Unix domain socket used for Chrome DevTools debugging.
