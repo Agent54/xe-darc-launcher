@@ -15,12 +15,14 @@ let package = Package(
             name: "macos",
             exclude: [
                 "Info.plist",
-                "Resources/default-profile"
+                "Entitlements.plist",
+                "Resources/app.icns",
+                "Resources/vms",
+                "sandbox"
             ],
             resources: [
-                .copy("Resources/app.icns"),
-                .copy("Resources/vms"),
-                .copy("sandbox")
+                .copy("Resources/Preferences.json"),
+                .copy("Resources/sources.json")
             ]
         )
     ]

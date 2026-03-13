@@ -73,7 +73,6 @@ final class ExternalState: @unchecked Sendable {
     struct DependencyStatus {
         let colima: Bool
         let chrome: InstalledChrome?
-        let chromeFlagsOK: Bool
         let profiles: [String]
     }
 
@@ -112,8 +111,12 @@ final class ExternalState: @unchecked Sendable {
     private(set) var appVMRunning = false
 
     /// Managed long-running subprocesses keyed by name
-    private var subprocesses: [String: Process] = [:]
+    var subprocesses: [String: Process] = [:]
+    /// PID for the browser process spawned via posix_spawn (not tracked by Process)
+    var _browserPid: pid_t = 0
     private var darcApp: NSRunningApplication?
+    /// Public read-only access to the Darc NSRunningApplication reference for activation.
+    var darcAppRef: NSRunningApplication? { darcApp }
 
     /// Check if a named subprocess is currently running
     func isSubprocessRunning(_ name: String) -> Bool {
@@ -126,7 +129,15 @@ final class ExternalState: @unchecked Sendable {
         darcApp = nil
         return false
     }
-    var chromeRunning: Bool { isSubprocessRunning("browser") }
+    var chromeRunning: Bool {
+        // Check posix_spawn'd browser pid
+        if _browserPid > 0 {
+            // kill(pid, 0) checks if process exists without sending a signal
+            if kill(_browserPid, 0) == 0 { return true }
+            _browserPid = 0
+        }
+        return isSubprocessRunning("browser")
+    }
 
     private var lastColimaRefresh = Date.distantPast
     private let minColimaRefreshInterval: TimeInterval = 15
@@ -138,12 +149,12 @@ final class ExternalState: @unchecked Sendable {
 
     func updateAll() {
         ensureAppDataFolderExists()
-        updateInstalledChromes()
+        refreshChromeAvailability()
         updateChromeProfiles()
         updateVMProfiles()
         refreshRuntimeStateFromSystemTruth(force: true)
         updateSettings()
-        _ = ensureChromeFlags()
+
     }
 
     func refreshRuntimeStateFromSystemTruth(force: Bool = false) {
@@ -158,57 +169,19 @@ final class ExternalState: @unchecked Sendable {
         seedBundledAssets()
     }
 
-    /// Copy Darc.app helper and VM profile templates from the app bundle into the user data directory.
-    /// Darc.app lives outside the signed bundle so its Info.plist can be patched per-profile without
-    /// invalidating the main app's signature.  VM yamls are seeded once so users can customise them.
+    /// Seed VM profile templates and download required assets (Helium, Darc) on first run.
     private func seedBundledAssets() {
         let fm = FileManager.default
         let dataURL = Self.appDataURL
 
-        // --- Helper apps (from bundle Helpers/) ---
-        // Copied to user dir so plist patches / association changes don't invalidate the main app signature.
-        if let bundleHelpers = Bundle.main.resourceURL?
-            .deletingLastPathComponent()
-            .appendingPathComponent("Helpers", isDirectory: true) {
-            for helperName in ["Darc.app", "Helium.app"] {
-                let src = bundleHelpers.appendingPathComponent(helperName)
-                let dst = dataURL.appendingPathComponent(helperName)
-                // Only seed if not already present — never overwrite user data.
-                if fm.fileExists(atPath: src.path) && !fm.fileExists(atPath: dst.path) {
-                    do {
-                        try fm.copyItem(at: src, to: dst)
-                        print("[ExternalState] Seeded \(helperName) to \(dst.path)")
-                    } catch {
-                        print("[ExternalState] Failed to seed \(helperName): \(error)")
-                    }
-                }
-            }
-        }
-
-        // --- Default profile template (from bundle Resources/) ---
-        if let bundleRes = Bundle.main.resourceURL {
-            let srcTemplate = bundleRes.appendingPathComponent("default-profile", isDirectory: true)
-            let dstTemplate = dataURL.appendingPathComponent("default-profile", isDirectory: true)
-            if fm.fileExists(atPath: srcTemplate.path) && !fm.fileExists(atPath: dstTemplate.path) {
-                do {
-                    try fm.copyItem(at: srcTemplate, to: dstTemplate)
-                    print("[ExternalState] Seeded default-profile template")
-                } catch {
-                    print("[ExternalState] Failed to seed default-profile: \(error)")
-                }
-            }
-        }
-
         // --- VM profile templates (from bundle Resources/vms/) ---
-        let bundleVMs: URL? = Bundle.module.resourceURL?.appendingPathComponent("vms", isDirectory: true)
-            ?? Bundle.main.resourceURL?.appendingPathComponent("vms", isDirectory: true)
+        let bundleVMs: URL? = Bundle.main.resourceURL?.appendingPathComponent("vms", isDirectory: true)
         if let bundleVMs, fm.fileExists(atPath: bundleVMs.path) {
             let dstVMs = dataURL.appendingPathComponent("vms", isDirectory: true)
             if let files = try? fm.contentsOfDirectory(atPath: bundleVMs.path) {
                 for file in files where file.hasSuffix(".yaml") {
                     let src = bundleVMs.appendingPathComponent(file)
                     let dst = dstVMs.appendingPathComponent(file)
-                    // Only seed if not already present so user edits are preserved.
                     if !fm.fileExists(atPath: dst.path) {
                         do {
                             try fm.copyItem(at: src, to: dst)
@@ -220,11 +193,21 @@ final class ExternalState: @unchecked Sendable {
                 }
             }
         }
+
+        // --- Download assets from sources.json on first run ---
+        downloadAssetsIfNeeded()
+    }
+
+    /// Download assets defined in sources.json if not already present.
+    private func downloadAssetsIfNeeded() {
+        downloadSourceAssetsIfNeeded(dataURL: Self.appDataURL) { [weak self] source, message in
+            self?.appendLog(source, message)
+        }
     }
 
     /// Resolve a helper app path: prefer the user data dir copy (avoids signature issues),
     /// fall back to the app bundle's Helpers/.
-    private static func resolveHelperApp(name: String) -> URL {
+    static func resolveHelperApp(name: String) -> URL {
         let userCopy = appDataURL.appendingPathComponent(name)
         if FileManager.default.fileExists(atPath: userCopy.path) {
             return userCopy
@@ -238,10 +221,14 @@ final class ExternalState: @unchecked Sendable {
         return userCopy
     }
 
-    func updateInstalledChromes() {
+    /// Update the list of known Chrome installations.
+    /// - Parameter scanAll: When `true` (e.g. Option key held), scan for all known Chrome variants.
+    ///   When `false` (default), only populate the configured variant (defaults to Helium) to avoid
+    ///   silently falling back to a different browser.
+    func refreshChromeAvailability(scanAll: Bool = false) {
         let heliumApp = Self.resolveHelperApp(name: "Helium.app")
         let heliumExec = heliumApp.appendingPathComponent("Contents/MacOS/Helium")
-        let chromePaths: [(String, String, String, String)] = [
+        let allChromePaths: [(String, String, String, String)] = [
             ("Helium", heliumApp.path, heliumExec.path, "helium"),
             ("Google Chrome Beta", "/Applications/Google Chrome Beta.app", "/Applications/Google Chrome Beta.app/Contents/MacOS/Google Chrome Beta", "beta"),
             ("Google Chrome", "/Applications/Google Chrome.app", "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", "stable"),
@@ -249,6 +236,15 @@ final class ExternalState: @unchecked Sendable {
         ]
 
         let fm = FileManager.default
+        let chromePaths: [(String, String, String, String)]
+        if scanAll {
+            chromePaths = allChromePaths
+        } else {
+            // Only check the currently configured variant (default: helium)
+            let savedVariant = settings.rawData?["selected_chrome_variant"] as? String ?? "helium"
+            chromePaths = allChromePaths.filter { $0.3 == savedVariant }
+        }
+
         installedChromes = chromePaths.map { name, app, exec, variant in
             InstalledChrome(
                 name: name,
@@ -347,12 +343,11 @@ final class ExternalState: @unchecked Sendable {
     }
 
     func checkDependencies() -> DependencyStatus {
-        updateInstalledChromes()
+        refreshChromeAvailability()
         updateChromeProfiles()
         return DependencyStatus(
             colima: resolveExecutable(name: "colima") != nil,
             chrome: preferredChrome(),
-            chromeFlagsOK: ensureChromeFlags(),
             profiles: chromeProfiles.map(\.name)
         )
     }
@@ -384,7 +379,7 @@ final class ExternalState: @unchecked Sendable {
         }
     }
 
-    private func appendLog(_ source: String, _ line: String) {
+    func appendLog(_ source: String, _ line: String) {
         if allLogs.count >= Self.logBufferSize {
             allLogs.removeFirst(allLogs.count - Self.logBufferSize + 1)
         }
@@ -394,9 +389,9 @@ final class ExternalState: @unchecked Sendable {
 
     func startDarc() -> String? {
         if !chromeRunning, let err = startChrome() { return err }
-        _ = patchDarcAppPlist()
 
-        let appURL = Self.appDataURL.appendingPathComponent("Darc.app")
+        let profileName = selectedProfileName()
+        let appURL = Self.appDataURL.appendingPathComponent("shims/\(profileName)/Darc.app")
         let loader = appURL.appendingPathComponent("Contents/MacOS/app_mode_loader").path
         guard FileManager.default.isExecutableFile(atPath: loader) else {
             let msg = "Darc loader not found at \(loader)"
@@ -762,10 +757,15 @@ final class ExternalState: @unchecked Sendable {
     }
 
     /// Terminate and remove a named subprocess
-    private func terminateSubprocess(_ name: String) {
+    func terminateSubprocess(_ name: String) {
         if let process = subprocesses[name] {
             process.terminate()
             subprocesses.removeValue(forKey: name)
+        }
+        // Also kill posix_spawn'd browser process
+        if name == "browser" && _browserPid > 0 {
+            kill(_browserPid, SIGTERM)
+            _browserPid = 0
         }
     }
 
@@ -790,63 +790,24 @@ final class ExternalState: @unchecked Sendable {
         let fm = FileManager.default
 
         do {
-            // Check for a bootstrap template in the user data dir (seeded from bundle on first launch)
-            let templateURL = Self.appDataURL.appendingPathComponent("default-profile", isDirectory: true)
-            if fm.fileExists(atPath: templateURL.path) {
-                // Copy template contents to the new profile
-                try fm.copyItem(at: templateURL, to: profilePath)
-                appendLog("launcher", "Created profile '\(sanitized)' from bootstrap template")
+            // Create the profile directory and Default subdirectory
+            let defaultDir = profilePath.appendingPathComponent("Default", isDirectory: true)
+            try fm.createDirectory(at: defaultDir, withIntermediateDirectories: true)
+
+            // Copy base Preferences.json into the Default profile folder if available
+            if let prefsURL = Bundle.main.resourceURL?.appendingPathComponent("Preferences.json"),
+               fm.fileExists(atPath: prefsURL.path) {
+                let destPrefs = defaultDir.appendingPathComponent("Preferences")
+                try fm.copyItem(at: prefsURL, to: destPrefs)
+                appendLog("launcher", "Created profile '\(sanitized)' with base Preferences")
             } else {
-                // No template — just create an empty directory
-                try fm.createDirectory(at: profilePath, withIntermediateDirectories: true)
-                appendLog("launcher", "Created empty profile '\(sanitized)' (no bootstrap template found)")
+                appendLog("launcher", "Created empty profile '\(sanitized)' (no Preferences.json in bundle)")
             }
             updateChromeProfiles()
             return nil
         } catch {
             return "Failed to create profile: \(error.localizedDescription)"
         }
-    }
-
-    func startChrome() -> String? {
-        let profileName = selectedProfileName()
-        let profileDir = Self.appDataURL.appendingPathComponent("profiles/\(profileName)", isDirectory: true)
-        if !FileManager.default.fileExists(atPath: profileDir.path) {
-            // Bootstrap from template if available
-            if let err = createProfile(name: profileName) { return err }
-        }
-
-        guard let chrome = preferredChrome() else { return "No supported Chrome installation found" }
-
-        var args = [
-            "--user-data-dir=\(profileDir.path)",
-            "--silent-launch",
-            "--remote-debugging-port=9226",
-            "--disable-features=CADisplayLinkInBrowser",
-            "--remote-allow-origins=https://localhost:5194",
-            "--no-default-browser-check"
-        ]
-        if boolSetting("chrome_headless", default: true) { args.append("--headless") }
-
-        do {
-            subprocesses["browser"] = try spawnLongRunningProcess(executable: chrome.executablePath, arguments: args, source: "browser")
-            appendLog("launcher", "Chrome started (\(chrome.name), pid=\(subprocesses["browser"]?.processIdentifier ?? -1), isRunning=\(chromeRunning))")
-            print("[ExternalState] Chrome started, isRunning=\(chromeRunning)")
-            return nil
-        } catch {
-            let msg = "Chrome start failed: \(error)"
-            appendLog("launcher", msg)
-            print("[ExternalState] \(msg)")
-            return error.localizedDescription
-        }
-    }
-
-    func stopChrome() {
-        let wasRunning = chromeRunning
-        stopDarc()
-        terminateSubprocess("browser")
-        appendLog("launcher", "Chrome stopped (wasRunning=\(wasRunning))")
-        print("[ExternalState] Chrome stopped (wasRunning=\(wasRunning))")
     }
 
     func startLegacyVM() -> String? { runColimaLogged(arguments: ["start", "-p", "darc"]) }
@@ -889,106 +850,15 @@ final class ExternalState: @unchecked Sendable {
         return result.exitCode == 0 ? nil : (result.error.isEmpty ? "colima command failed" : result.error)
     }
 
-    @discardableResult
-    func patchDarcAppPlist() -> String? {
-        let plistPath = Self.appDataURL.appendingPathComponent("Darc.app/Contents/Info.plist")
-        guard FileManager.default.fileExists(atPath: plistPath.path) else { return nil }
 
-        do {
-            let content = try String(contentsOf: plistPath, encoding: .utf8)
-            let userDataDir = Self.appDataURL
-                .appendingPathComponent("profiles/\(selectedProfileName())/-/Web Applications/_crx_olcppkbdbkjjkmaedekgaajkgipnodan")
-                .path
 
-            let lines = content.components(separatedBy: "\n")
-            var outLines = [String]()
-            var inUserDataKey = false
-            for line in lines {
-                if line.contains("<key>CrAppModeUserDataDir</key>") {
-                    inUserDataKey = true
-                    outLines.append(line)
-                } else if inUserDataKey && line.contains("<string>") {
-                    outLines.append("\t<string>\(userDataDir)</string>")
-                    inUserDataKey = false
-                } else {
-                    outLines.append(line)
-                }
-            }
-            let out = outLines.joined(separator: "\n")
-
-            // Only write if content actually changed; writing invalidates the
-            // ad-hoc code signature that Chrome requires for app shim validation.
-            if out == content { return nil }
-
-            try out.write(to: plistPath, atomically: true, encoding: .utf8)
-
-            // Re-sign the bundle so Chrome accepts the shim's code signature.
-            let appBundlePath = Self.appDataURL.appendingPathComponent("Darc.app").path
-            let result = runCommand("/usr/bin/codesign", arguments: ["--force", "--deep", "--sign", "-", appBundlePath])
-            if result.exitCode != 0 {
-                let msg = "codesign after plist patch failed: \(result.error)"
-                appendLog("launcher", msg)
-                print("[ExternalState] \(msg)")
-                return msg
-            }
-            appendLog("launcher", "Patched Darc.app Info.plist and re-signed")
-            return nil
-        } catch {
-            return "Failed to patch Info.plist: \(error.localizedDescription)"
-        }
-    }
-
-    @discardableResult
-    func ensureChromeFlags() -> Bool {
-        // let localStatePath = Self.appDataURL.appendingPathComponent("profiles/default/Local State")
-        // let fm = FileManager.default
-
-        // if !fm.fileExists(atPath: localStatePath.path) {
-        //     let initial: [String: Any] = ["browser": ["enabled_labs_experiments": Self.requiredChromeFlags]]
-        //     do {
-        //         try fm.createDirectory(at: localStatePath.deletingLastPathComponent(), withIntermediateDirectories: true)
-        //         let data = try JSONSerialization.data(withJSONObject: initial, options: [.prettyPrinted])
-        //         try data.write(to: localStatePath, options: .atomic)
-        //         return true
-        //     } catch { return false }
-        // }
-
-        // guard let data = try? Data(contentsOf: localStatePath),
-        //       var root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
-        //     return false
-        // }
-
-        // var browser = root["browser"] as? [String: Any] ?? [:]
-        // var experiments = browser["enabled_labs_experiments"] as? [String] ?? []
-        // var modified = false
-
-        // for flag in Self.requiredChromeFlags where !experiments.contains(flag) {
-        //     experiments.append(flag)
-        //     modified = true
-        // }
-
-        // browser["enabled_labs_experiments"] = experiments
-        // root["browser"] = browser
-
-        // if modified {
-        //     do {
-        //         let updated = try JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted])
-        //         try updated.write(to: localStatePath, options: .atomic)
-        //     } catch { return false }
-        // }
-
-        return true
-    }
-
-    /// Returns the currently selected Chrome variant, falling back to the first eligible one.
+    /// Returns the currently selected Chrome variant.  Defaults to "helium" when no variant is saved.
+    /// Returns `nil` if the selected variant is not installed — never silently falls back to another browser.
     func selectedChrome() -> InstalledChrome? {
         let minVersion = 145
+        let savedVariant = settings.rawData?["selected_chrome_variant"] as? String ?? "helium"
         let eligible = installedChromes.filter { $0.isInstalled && ($0.version ?? 0) >= minVersion }
-        if let savedVariant = settings.rawData?["selected_chrome_variant"] as? String,
-           let match = eligible.first(where: { $0.variant == savedVariant }) {
-            return match
-        }
-        return eligible.first
+        return eligible.first(where: { $0.variant == savedVariant })
     }
 
     /// Select a Chrome variant by its variant key (e.g. "beta", "stable", "canary").
@@ -1000,7 +870,7 @@ final class ExternalState: @unchecked Sendable {
         saveSettings()
     }
 
-    private func preferredChrome() -> InstalledChrome? {
+    func preferredChrome() -> InstalledChrome? {
         selectedChrome()
     }
 
@@ -1086,7 +956,7 @@ final class ExternalState: @unchecked Sendable {
         }
     }
 
-    private func spawnLongRunningProcess(executable: String, arguments: [String], source: String) throws -> Process {
+    func spawnLongRunningProcess(executable: String, arguments: [String], source: String) throws -> Process {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executable)
         process.arguments = arguments

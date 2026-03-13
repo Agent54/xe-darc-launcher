@@ -1,3 +1,7 @@
+# Load .env file if it exists
+-include .env
+export
+
 APP_NAME = Darc
 BUNDLE_ID = dev.xe.darc
 BUILD_DIR = .build
@@ -5,24 +9,22 @@ APP_BUNDLE = $(BUILD_DIR)/$(APP_NAME).app
 CONTENTS = $(APP_BUNDLE)/Contents
 MACOS_DIR = $(CONTENTS)/MacOS
 RESOURCES = $(CONTENTS)/Resources
-HELPERS_SRC = Helpers
-HELPERS_DST = $(CONTENTS)/Helpers
 DMG_NAME = $(APP_NAME).dmg
+ENTITLEMENTS = Sources/macos/Entitlements.plist
 
-# Code signing identity - replace with your Developer ID Application certificate
-# Find yours with: security find-identity -v -p codesigning
-DEVELOPER_ID ?= 772B3JT6MK
-
-# Apple ID for notarization - set these environment variables or pass to make
-APPLE_ID ?= jan@ntr.io
-TEAM_ID ?= YOURTEAMID
-# Create app-specific password at https://appleid.apple.com/account/manage
-# Store in keychain: xcrun notarytool store-credentials "notarytool-profile" --apple-id "your@email.com" --team-id "YOURTEAMID"
+# Set in .env or pass on the command line
+# DEVELOPER_ID ?=
+# APPLE_ID ?=
+# TEAM_ID ?=
 NOTARY_PROFILE ?= notarytool-profile
 
-.PHONY: all clean build bundle run release release-sign notarize dmg
+.PHONY: all clean build bundle run release release-sign check notarize dmg
 
 all: bundle
+
+zip-helpers:
+	@echo "Zipping helpers..."
+	@ditto -c -k --keepParent $(BUILD_DIR)/Helium.zip Sources/macos/helpers/Helium.app
 
 build:
 	swift build -c release
@@ -35,18 +37,13 @@ package: build
 	@echo 'APPL????' > $(CONTENTS)/PkgInfo
 	@rsync -a Sources/macos/Resources/ $(RESOURCES)/
 	@rsync -a --delete Sources/macos/sandbox/ $(RESOURCES)/sandbox/
-	@if [ -d "$(HELPERS_SRC)" ] && ls $(HELPERS_SRC)/*.app 1>/dev/null 2>&1; then \
-		mkdir -p $(HELPERS_DST); \
-		rsync -a $(HELPERS_SRC)/*.app $(HELPERS_DST)/; \
-		echo "Helpers copied to $(HELPERS_DST)"; \
-	fi
 	@echo "App package created at $(APP_BUNDLE)"
 
 bundle: package
 	@echo "Creating app bundle..."
 	@cp Sources/macos/Info.plist $(CONTENTS)/Info.plist
 	@echo "Signing app bundle (ad-hoc)..."
-	@codesign --force --deep --sign - $(APP_BUNDLE)
+	@codesign --force --options runtime --entitlements $(ENTITLEMENTS) --sign - $(APP_BUNDLE)
 	@echo "App bundle created at $(APP_BUNDLE)"
 
 run: package
@@ -62,22 +59,37 @@ release-sign: build
 	@echo 'APPL????' > $(CONTENTS)/PkgInfo
 	@rsync -a Sources/macos/Resources/ $(RESOURCES)/
 	@rsync -a --delete Sources/macos/sandbox/ $(RESOURCES)/sandbox/
-	@if [ -d "$(HELPERS_SRC)" ] && ls $(HELPERS_SRC)/*.app 1>/dev/null 2>&1; then \
-		mkdir -p $(HELPERS_DST); \
-		rsync -a $(HELPERS_SRC)/*.app $(HELPERS_DST)/; \
-		echo "Helpers copied to $(HELPERS_DST)"; \
-	fi
 	@echo "Signing with Developer ID: $(DEVELOPER_ID)"
-	@codesign --force --deep --options runtime --sign "$(DEVELOPER_ID)" $(APP_BUNDLE)
+	@codesign --force --options runtime --entitlements $(ENTITLEMENTS) --sign "$(DEVELOPER_ID)" $(APP_BUNDLE)
 	@echo "Verifying signature..."
 	@codesign --verify --verbose $(APP_BUNDLE)
-	# enable for distribution:
-	# @echo "Checking Gatekeeper (requires Developer ID cert for distribution)..."
-	# -@spctl --assess --verbose --type execute $(APP_BUNDLE)
+
+	@echo "Checking Gatekeeper (requires Developer ID cert for distribution)..."
+	-@spctl --assess --verbose --type execute $(APP_BUNDLE)
 	@echo "Signed app bundle created at $(APP_BUNDLE)"
 
-# Notarize the app bundle (requires release-sign first)
-notarize: release-sign
+# Pre-notarization checks (catches issues locally before slow upload)
+check: release-sign
+	@echo "Deep strict signature verification..."
+	@codesign --verify --deep --strict --verbose=2 $(APP_BUNDLE)
+
+	@echo "Checking hardened runtime on all executables..."
+	@fail=0; find $(APP_BUNDLE) -type f -perm +111 | while read f; do \
+		if file "$$f" | grep -q 'Mach-O'; then \
+			if ! codesign -dvv "$$f" 2>&1 | grep -q 'flags=.*runtime'; then \
+				echo "ERROR: no hardened runtime: $$f"; \
+				exit 1; \
+			fi; \
+		fi; \
+	done
+
+	# @echo "Gatekeeper assessment..."
+	# @spctl --assess --verbose --type execute $(APP_BUNDLE)
+	# @echo "All pre-notarization checks passed!"
+
+
+# Notarize the app bundle (requires check first)
+notarize: check
 	@echo "Creating ZIP for notarization..."
 	@ditto -c -k --keepParent $(APP_BUNDLE) $(BUILD_DIR)/$(APP_NAME)-notarize.zip
 	@echo "Submitting to Apple for notarization..."
@@ -93,8 +105,17 @@ notarize: release-sign
 dmg: notarize
 	@echo "Creating DMG..."
 	@rm -f $(BUILD_DIR)/$(DMG_NAME)
-	@hdiutil create -volname "$(APP_NAME)" -srcfolder $(APP_BUNDLE) -ov -format UDZO $(BUILD_DIR)/$(DMG_NAME)
-	@codesign --force --sign "$(DEVELOPER_ID)" $(BUILD_DIR)/$(DMG_NAME)
+	@create-dmg \
+		--volname "$(APP_NAME)" \
+		--window-pos 200 120 \
+		--window-size 600 400 \
+		--icon-size 100 \
+		--icon "$(APP_NAME).app" 150 190 \
+		--hide-extension "$(APP_NAME).app" \
+		--app-drop-link 450 190 \
+		--codesign "$(DEVELOPER_ID)" \
+		$(BUILD_DIR)/$(DMG_NAME) \
+		$(APP_BUNDLE)
 	@echo "DMG created at $(BUILD_DIR)/$(DMG_NAME)"
 
 # Full release: sign, notarize, create DMG
