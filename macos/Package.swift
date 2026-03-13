@@ -16,7 +16,6 @@ let package = Package(
             exclude: [
                 "Info.plist",
                 "Entitlements.plist",
-                "Resources/default-profile",
                 "Resources/app.icns",
                 "Resources/vms",
                 "sandbox"

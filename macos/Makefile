@@ -9,8 +9,6 @@ APP_BUNDLE = $(BUILD_DIR)/$(APP_NAME).app
 CONTENTS = $(APP_BUNDLE)/Contents
 MACOS_DIR = $(CONTENTS)/MacOS
 RESOURCES = $(CONTENTS)/Resources
-HELPERS_SRC = Helpers
-HELPERS_DST = $(CONTENTS)/Helpers
 DMG_NAME = $(APP_NAME).dmg
 ENTITLEMENTS = Sources/macos/Entitlements.plist
 
@@ -33,10 +31,8 @@ package: build
 	@mkdir -p $(RESOURCES)
 	@cp $(BUILD_DIR)/release/macos $(MACOS_DIR)/bin
 	@echo 'APPL????' > $(CONTENTS)/PkgInfo
-	@rsync -a --exclude='default-profile' Sources/macos/Resources/ $(RESOURCES)/
+	@rsync -a Sources/macos/Resources/ $(RESOURCES)/
 	@rsync -a --delete Sources/macos/sandbox/ $(RESOURCES)/sandbox/
-	@mkdir -p $(HELPERS_DST)
-	@rsync -a $(HELPERS_SRC)/Darc.app $(HELPERS_DST)/
 	@echo "App package created at $(APP_BUNDLE)"
 
 bundle: package
@@ -57,10 +53,8 @@ release-sign: build
 	@cp $(BUILD_DIR)/release/macos $(MACOS_DIR)/bin
 	@cp Sources/macos/Info.plist $(CONTENTS)/Info.plist
 	@echo 'APPL????' > $(CONTENTS)/PkgInfo
-	@rsync -a --exclude='default-profile' Sources/macos/Resources/ $(RESOURCES)/
+	@rsync -a Sources/macos/Resources/ $(RESOURCES)/
 	@rsync -a --delete Sources/macos/sandbox/ $(RESOURCES)/sandbox/
-	@mkdir -p $(HELPERS_DST)
-	@rsync -a $(HELPERS_SRC)/Darc.app $(HELPERS_DST)/
 	@echo "Signing with Developer ID: $(DEVELOPER_ID)"
 	@codesign --force --options runtime --entitlements $(ENTITLEMENTS) --sign "$(DEVELOPER_ID)" $(APP_BUNDLE)
 	@echo "Verifying signature..."

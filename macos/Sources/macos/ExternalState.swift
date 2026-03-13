@@ -112,7 +112,7 @@ final class ExternalState: @unchecked Sendable {
     private(set) var appVMRunning = false
 
     /// Managed long-running subprocesses keyed by name
-    private var subprocesses: [String: Process] = [:]
+    var subprocesses: [String: Process] = [:]
     private var darcApp: NSRunningApplication?
     /// Public read-only access to the Darc NSRunningApplication reference for activation.
     var darcAppRef: NSRunningApplication? { darcApp }
@@ -371,7 +371,7 @@ final class ExternalState: @unchecked Sendable {
         }
     }
 
-    private func appendLog(_ source: String, _ line: String) {
+    func appendLog(_ source: String, _ line: String) {
         if allLogs.count >= Self.logBufferSize {
             allLogs.removeFirst(allLogs.count - Self.logBufferSize + 1)
         }
@@ -749,7 +749,7 @@ final class ExternalState: @unchecked Sendable {
     }
 
     /// Terminate and remove a named subprocess
-    private func terminateSubprocess(_ name: String) {
+    func terminateSubprocess(_ name: String) {
         if let process = subprocesses[name] {
             process.terminate()
             subprocesses.removeValue(forKey: name)
@@ -795,52 +795,6 @@ final class ExternalState: @unchecked Sendable {
         } catch {
             return "Failed to create profile: \(error.localizedDescription)"
         }
-    }
-
-    func startChrome() -> String? {
-        // Re-check if the configured chrome is available (it may have been downloaded since last check)
-        refreshChromeAvailability()
-
-        let profileName = selectedProfileName()
-        let profileDir = Self.appDataURL.appendingPathComponent("profiles/\(profileName)", isDirectory: true)
-        if !FileManager.default.fileExists(atPath: profileDir.path) {
-            // Bootstrap from template if available
-            if let err = createProfile(name: profileName) { return err }
-        }
-
-        guard let chrome = preferredChrome() else { return "No supported Chrome installation found" }
-
-        var args = [
-            "--user-data-dir=\(profileDir.path)",
-            "--silent-launch",
-            "--remote-debugging-port=9226",
-            "--disable-features=CADisplayLinkInBrowser",
-            "--remote-allow-origins=https://localhost:5194",
-            "--no-default-browser-check"
-        ]
-        if boolSetting("chrome_headless", default: true) { args.append("--headless") }
-
-        do {
-            subprocesses["browser"] = try spawnLongRunningProcess(executable: chrome.executablePath, arguments: args, source: "browser")
-            appendLog("launcher", "Chrome started (\(chrome.name), pid=\(subprocesses["browser"]?.processIdentifier ?? -1), isRunning=\(chromeRunning))")
-            print("[ExternalState] Chrome started, isRunning=\(chromeRunning)")
-            return nil
-        } catch {
-            let msg = "Chrome start failed: \(error)"
-            appendLog("launcher", msg)
-            print("[ExternalState] \(msg)")
-            return error.localizedDescription
-        }
-    }
-
-    func stopChrome() {
-        let wasRunning = chromeRunning
-        // Don't explicitly stop Darc here — it runs inside the Chrome engine process
-        // and will terminate naturally when Chrome exits.  Keeping it separate lets us
-        // verify that Darc is actually attached to the correct Chrome instance.
-        terminateSubprocess("browser")
-        appendLog("launcher", "Chrome stopped (wasRunning=\(wasRunning))")
-        print("[ExternalState] Chrome stopped (wasRunning=\(wasRunning))")
     }
 
     func startLegacyVM() -> String? { runColimaLogged(arguments: ["start", "-p", "darc"]) }
@@ -1016,7 +970,7 @@ final class ExternalState: @unchecked Sendable {
         saveSettings()
     }
 
-    private func preferredChrome() -> InstalledChrome? {
+    func preferredChrome() -> InstalledChrome? {
         selectedChrome()
     }
 
@@ -1102,7 +1056,7 @@ final class ExternalState: @unchecked Sendable {
         }
     }
 
-    private func spawnLongRunningProcess(executable: String, arguments: [String], source: String) throws -> Process {
+    func spawnLongRunningProcess(executable: String, arguments: [String], source: String) throws -> Process {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executable)
         process.arguments = arguments

@@ -55,9 +55,9 @@ func downloadSourceAssetsIfNeeded(dataURL: URL, log: @escaping (String, String) 
 
         log("launcher", "Downloading \(asset.name) from \(asset.url.absoluteString)")
 
-        let downloadSemaphore = DispatchSemaphore(value: 0)
-        var downloadedFileURL: URL?
-        var downloadError: Error?
+            let downloadSemaphore = DispatchSemaphore(value: 0)
+            nonisolated(unsafe) var downloadedFileURL: URL?
+            nonisolated(unsafe) var downloadError: Error?
 
         let session = URLSession(configuration: .default, delegate: DownloadProgressDelegate { fraction in
             DispatchQueue.main.async {
