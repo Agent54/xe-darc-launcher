@@ -105,8 +105,17 @@ notarize: check
 dmg: notarize
 	@echo "Creating DMG..."
 	@rm -f $(BUILD_DIR)/$(DMG_NAME)
-	@hdiutil create -volname "$(APP_NAME)" -srcfolder $(APP_BUNDLE) -ov -format UDZO $(BUILD_DIR)/$(DMG_NAME)
-	@codesign --force --sign "$(DEVELOPER_ID)" $(BUILD_DIR)/$(DMG_NAME)
+	@create-dmg \
+		--volname "$(APP_NAME)" \
+		--window-pos 200 120 \
+		--window-size 600 400 \
+		--icon-size 100 \
+		--icon "$(APP_NAME).app" 150 190 \
+		--hide-extension "$(APP_NAME).app" \
+		--app-drop-link 450 190 \
+		--codesign "$(DEVELOPER_ID)" \
+		$(BUILD_DIR)/$(DMG_NAME) \
+		$(APP_BUNDLE)
 	@echo "DMG created at $(BUILD_DIR)/$(DMG_NAME)"
 
 # Full release: sign, notarize, create DMG
