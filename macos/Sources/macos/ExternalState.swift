@@ -978,10 +978,11 @@ final class ExternalState: @unchecked Sendable {
             // Rename staging dir to .app (atomic move, creates the .app in one step).
             try fm.moveItem(at: stagingDir, to: dstApp)
 
-            // Ad-hoc sign the bundle so macOS doesn't kill the executable.
-            let result = runCommand("/usr/bin/codesign", arguments: ["--force", "--deep", "--sign", "-", dstApp.path])
-            if result.exitCode != 0 {
-                appendLog("launcher", "codesign warning: \(result.error)")
+            // Ad-hoc sign using Security framework API (like Chrome does).
+            // This avoids the App Management permission prompt that codesign CLI triggers.
+            if let signError = Self.adHocSign(bundlePath: dstApp.path) {
+                appendLog("launcher", "Failed to sign Darc.app shim: \(signError)")
+                return signError
             }
             appendLog("launcher", "Created Darc.app shim with profile \(selectedProfileName())")
             return nil
@@ -995,30 +996,31 @@ final class ExternalState: @unchecked Sendable {
     /// app shims in-process and avoids the macOS App Management permission prompt
     /// that the `codesign` CLI tool triggers.
     static func adHocSign(bundlePath: String) -> String? {
-        let url = URL(fileURLWithPath: bundlePath) as CFURL
-        var staticCode: SecStaticCode?
-        guard SecStaticCodeCreateWithPath(url, [], &staticCode) == errSecSuccess,
-              let code = staticCode else {
-            return "Failed to create SecStaticCode for \(bundlePath)"
-        }
+        // disabled to see if even needed
+        // let url = URL(fileURLWithPath: bundlePath) as CFURL
+        // var staticCode: SecStaticCode?
+        // guard SecStaticCodeCreateWithPath(url, [], &staticCode) == errSecSuccess,
+        //       let code = staticCode else {
+        //     return "Failed to create SecStaticCode for \(bundlePath)"
+        // }
 
-        // kSecCodeSignerIdentity = NSNull → ad-hoc signing (no identity)
-        let params: NSDictionary = [
-            kSecCodeSignerIdentity as String: NSNull()
-        ]
+        // // kSecCodeSignerIdentity = NSNull → ad-hoc signing (no identity)
+        // let params: NSDictionary = [
+        //     kSecCodeSignerIdentity as String: NSNull()
+        // ]
 
-        var signer: SecCodeSigner?
-        guard SecCodeSignerCreate(params, [], &signer) == errSecSuccess,
-              let s = signer else {
-            return "Failed to create SecCodeSigner for \(bundlePath)"
-        }
+        // var signer: SecCodeSigner?
+        // guard SecCodeSignerCreate(params, [], &signer) == errSecSuccess,
+        //       let s = signer else {
+        //     return "Failed to create SecCodeSigner for \(bundlePath)"
+        // }
 
-        var errors: CFError?
-        let status = SecCodeSignerAddSignatureWithErrors(s, code, [], &errors)
-        if status != errSecSuccess {
-            let errMsg = errors.map { CFErrorCopyDescription($0) as String } ?? "unknown error"
-            return "Failed to sign \(bundlePath): \(errMsg) (status: \(status))"
-        }
+        // var errors: CFError?
+        // let status = SecCodeSignerAddSignatureWithErrors(s, code, [], &errors)
+        // if status != errSecSuccess {
+        //     let errMsg = errors.map { CFErrorCopyDescription($0) as String } ?? "unknown error"
+        //     return "Failed to sign \(bundlePath): \(errMsg) (status: \(status))"
+        // }
         return nil
     }
 
