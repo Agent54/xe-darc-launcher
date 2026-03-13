@@ -361,8 +361,8 @@ final class ExternalState: @unchecked Sendable {
     }
 
     func launchBrowserStack() -> String? {
-        if boolSetting("chrome_was_running", default: false), let err = startChrome() { return err }
-        if boolSetting("darc_was_running", default: false), let err = startDarc() { return err }
+        if boolSetting("chrome_was_running", default: true), let err = startChrome() { return err }
+        if boolSetting("darc_was_running", default: true), let err = startDarc() { return err }
         return nil
     }
 
