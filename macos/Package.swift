@@ -22,7 +22,8 @@ let package = Package(
                 "sandbox"
             ],
             resources: [
-                .copy("Resources/Preferences.json")
+                .copy("Resources/Preferences.json"),
+                .copy("Resources/sources.json")
             ]
         )
     ]

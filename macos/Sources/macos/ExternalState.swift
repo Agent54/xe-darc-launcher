@@ -160,34 +160,10 @@ final class ExternalState: @unchecked Sendable {
         seedBundledAssets()
     }
 
-    /// Copy Darc.app helper and VM profile templates from the app bundle into the user data directory.
-    /// Darc.app lives outside the signed bundle so its Info.plist can be patched per-profile without
-    /// invalidating the main app's signature.  VM yamls are seeded once so users can customise them.
+    /// Seed VM profile templates and download required assets (Helium, Darc) on first run.
     private func seedBundledAssets() {
         let fm = FileManager.default
         let dataURL = Self.appDataURL
-
-        // --- Helper apps ---
-        // TODO: Download helper apps during install step instead of bundling them.
-        // Bundling makes the app too large and breaks code signing too easily.
-        // if let bundleHelpers = Bundle.main.resourceURL?
-        //     .deletingLastPathComponent()
-        //     .appendingPathComponent("Helpers", isDirectory: true) {
-        //     for helperName in ["Darc.app", "Helium.app"] {
-        //         let src = bundleHelpers.appendingPathComponent(helperName)
-        //         let dst = dataURL.appendingPathComponent(helperName)
-        //         // Only seed if not already present — never overwrite user data.
-        //         if fm.fileExists(atPath: src.path) && !fm.fileExists(atPath: dst.path) {
-        //             do {
-        //                 try fm.copyItem(at: src, to: dst)
-        //                 print("[ExternalState] Seeded \(helperName) to \(dst.path)")
-        //             } catch {
-        //                 print("[ExternalState] Failed to seed \(helperName): \(error)")
-        //             }
-        //         }
-        //     }
-        // }
-
 
         // --- VM profile templates (from bundle Resources/vms/) ---
         let bundleVMs: URL? = Bundle.main.resourceURL?.appendingPathComponent("vms", isDirectory: true)
@@ -197,7 +173,6 @@ final class ExternalState: @unchecked Sendable {
                 for file in files where file.hasSuffix(".yaml") {
                     let src = bundleVMs.appendingPathComponent(file)
                     let dst = dstVMs.appendingPathComponent(file)
-                    // Only seed if not already present so user edits are preserved.
                     if !fm.fileExists(atPath: dst.path) {
                         do {
                             try fm.copyItem(at: src, to: dst)
@@ -208,6 +183,16 @@ final class ExternalState: @unchecked Sendable {
                     }
                 }
             }
+        }
+
+        // --- Download assets from sources.json on first run ---
+        downloadAssetsIfNeeded()
+    }
+
+    /// Download assets defined in sources.json if not already present.
+    private func downloadAssetsIfNeeded() {
+        downloadSourceAssetsIfNeeded(dataURL: Self.appDataURL) { [weak self] source, message in
+            self?.appendLog(source, message)
         }
     }
 

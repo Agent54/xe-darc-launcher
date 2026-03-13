@@ -1,3 +1,7 @@
+# Load .env file if it exists
+-include .env
+export
+
 APP_NAME = Darc
 BUNDLE_ID = dev.xe.darc
 BUILD_DIR = .build
@@ -10,17 +14,10 @@ HELPERS_DST = $(CONTENTS)/Helpers
 DMG_NAME = $(APP_NAME).dmg
 ENTITLEMENTS = Sources/macos/Entitlements.plist
 
-# Code signing identity - replace with your Developer ID Application certificate
-# Find yours with: security find-identity -v -p codesigning
-# For distribution: use "Developer ID Application: Your Name (TEAMID)"
-# For development: use "Apple Development: Your Name (ID)"
-DEVELOPER_ID ?= Developer ID Application: Luke Hubbard (2NN5M4QY5Q)
-
-# Apple ID for notarization - set these environment variables or pass to make
-APPLE_ID ?= jan@ntr.io
-TEAM_ID ?= 2NN5M4QY5Q
-# Create app-specific password at https://appleid.apple.com/account/manage
-# Store in keychain: xcrun notarytool store-credentials "notarytool-profile" --apple-id "your@email.com" --team-id "YOURTEAMID"
+# Set in .env or pass on the command line
+# DEVELOPER_ID ?=
+# APPLE_ID ?=
+# TEAM_ID ?=
 NOTARY_PROFILE ?= notarytool-profile
 
 .PHONY: all clean build bundle run release release-sign check notarize dmg

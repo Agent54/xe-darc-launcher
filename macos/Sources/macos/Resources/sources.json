@@ -1,0 +1,4 @@
+{
+    "helium": {"url": "https://github.com/Agent54/xe-darc-launcher/releases/download/test/Helium.zip", "unzip": true},
+    "darc": {"url": "https://github.com/Agent54/xe-darc/releases/download/v0.0.10/darc.swbn", "unzip": false}
+}
