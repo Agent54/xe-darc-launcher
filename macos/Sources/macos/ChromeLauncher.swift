@@ -90,6 +90,14 @@ extension ExternalState {
 
             appendLog("launcher", "Chrome started with debug pipe (\(chrome.name), pid=\(_browserPid), isRunning=\(chromeRunning))")
             print("[ExternalState] Chrome started, isRunning=\(chromeRunning)")
+
+            // Check if app shim needs provisioning (in parallel)
+            let shimDir = Self.appDataURL.appendingPathComponent("shims/\(profileName)", isDirectory: true)
+            let shimApp = shimDir.appendingPathComponent("Darc.app")
+            if !FileManager.default.fileExists(atPath: shimApp.path) {
+                provisionAppShim(profileName: profileName, profileDir: profileDir, shimApp: shimApp, chrome: chrome)
+            }
+
             return nil
         } catch {
             let msg = "Chrome start failed: \(error)"
@@ -105,6 +113,92 @@ extension ExternalState {
         appendLog("launcher", "Chrome stopped (wasRunning=\(wasRunning))")
         print("[ExternalState] Chrome stopped (wasRunning=\(wasRunning))")
     }
+
+    /// Provision the app shim in the background.
+    /// Chrome creates the shim at ~/Applications/Chromium Apps.localized/Darc.app
+    /// on first IWA install. We wait for it, move it to our shims dir, restart Chrome
+    /// with a fresh Preferences.json.
+    private func provisionAppShim(profileName: String, profileDir: URL, shimApp: URL, chrome: InstalledChrome) {
+        DispatchQueue.global().async { [weak self] in
+            guard let self else { return }
+            let fm = FileManager.default
+            let systemShimPath = NSHomeDirectory() + "/Applications/Chromium Apps.localized/Darc.app"
+            let shimCodeSignature = systemShimPath + "/Contents/_CodeSignature"
+
+            self.appendLog("launcher", "Waiting for app shim at \(systemShimPath)...")
+
+            // Poll for the shim to appear with a valid code signature (max ~20s)
+            var found = false
+            for _ in 0..<40 {
+                if fm.fileExists(atPath: shimCodeSignature) {
+                    found = true
+                    break
+                }
+                Thread.sleep(forTimeInterval: 0.5)
+                // If Chrome died, abort
+                if !self.chromeRunning { break }
+            }
+
+            guard found else {
+                self.appendLog("launcher", "App shim was not created within timeout")
+                return
+            }
+
+            self.appendLog("launcher", "App shim found, moving to \(shimApp.path)")
+
+            // Create shims directory
+            try? fm.createDirectory(at: shimApp.deletingLastPathComponent(), withIntermediateDirectories: true)
+
+            // Verify the shim's CrAppModeUserDataDir matches our profile dir before moving
+            let systemShimPlist = URL(fileURLWithPath: systemShimPath).appendingPathComponent("Contents/Info.plist")
+            if let plistData = try? Data(contentsOf: systemShimPlist),
+               let plist = try? PropertyListSerialization.propertyList(from: plistData, format: nil) as? [String: Any],
+               let shimUserDataDir = plist["CrAppModeUserDataDir"] as? String {
+                if shimUserDataDir != profileDir.path {
+                    self.appendLog("launcher", "App shim CrAppModeUserDataDir mismatch: \(shimUserDataDir) != \(profileDir.path), skipping")
+                    return
+                }
+            }
+
+            // Move shim to our managed location
+            do {
+                try fm.moveItem(atPath: systemShimPath, toPath: shimApp.path)
+            } catch {
+                self.appendLog("launcher", "Failed to move app shim: \(error.localizedDescription)")
+                return
+            }
+
+            // Stop Chrome
+            self.appendLog("launcher", "Stopping Chrome for Preferences.json refresh...")
+            self.stopChrome()
+
+            // Wait a moment for Chrome to fully exit
+            Thread.sleep(forTimeInterval: 1.0)
+
+            // Copy Preferences.json over the profile's Default/Preferences
+            let defaultDir = profileDir.appendingPathComponent("Default", isDirectory: true)
+            try? fm.createDirectory(at: defaultDir, withIntermediateDirectories: true)
+            let destPrefs = defaultDir.appendingPathComponent("Preferences")
+            if let bundlePrefs = Bundle.main.resourceURL?.appendingPathComponent("Preferences.json"),
+               fm.fileExists(atPath: bundlePrefs.path) {
+                try? fm.removeItem(at: destPrefs)
+                do {
+                    try fm.copyItem(at: bundlePrefs, to: destPrefs)
+                    self.appendLog("launcher", "Copied Preferences.json to \(destPrefs.path)")
+                } catch {
+                    self.appendLog("launcher", "Failed to copy Preferences.json: \(error.localizedDescription)")
+                }
+            }
+
+            // Restart Chrome
+            self.appendLog("launcher", "Restarting Chrome after shim provisioning...")
+            let err = self.startChrome()
+            if let err {
+                self.appendLog("launcher", "Chrome restart failed: \(err)")
+            }
+        }
+    }
+
     /// Spawn a process with extra file descriptors mapped into the child using posix_spawn.
     /// Uses posix_spawn_file_actions_adddup2 for reliable fd mapping.
     /// Swift's Process uses POSIX_SPAWN_CLOEXEC_DEFAULT which closes all unmapped fds,
