@@ -73,7 +73,6 @@ final class ExternalState: @unchecked Sendable {
     struct DependencyStatus {
         let colima: Bool
         let chrome: InstalledChrome?
-        let chromeFlagsOK: Bool
         let profiles: [String]
     }
 
@@ -155,7 +154,7 @@ final class ExternalState: @unchecked Sendable {
         updateVMProfiles()
         refreshRuntimeStateFromSystemTruth(force: true)
         updateSettings()
-        _ = ensureChromeFlags()
+
     }
 
     func refreshRuntimeStateFromSystemTruth(force: Bool = false) {
@@ -349,7 +348,6 @@ final class ExternalState: @unchecked Sendable {
         return DependencyStatus(
             colima: resolveExecutable(name: "colima") != nil,
             chrome: preferredChrome(),
-            chromeFlagsOK: ensureChromeFlags(),
             profiles: chromeProfiles.map(\.name)
         )
     }
@@ -852,120 +850,7 @@ final class ExternalState: @unchecked Sendable {
         return result.exitCode == 0 ? nil : (result.error.isEmpty ? "colima command failed" : result.error)
     }
 
-    /// Ensure the Darc.app shim in the user data directory has the correct
-    /// CrAppModeUserDataDir for the current profile.  Instead of modifying an
-    /// existing .app bundle (which triggers the macOS "wants to update existing
-    /// software" App Management prompt), we delete the old shim and recreate it
-    /// from the template with the correct path already substituted, then sign once.
-    @discardableResult
-    func ensureDarcAppShim() -> String? {
-        let fm = FileManager.default
-        let dstApp = Self.appDataURL.appendingPathComponent("Darc.app")
-        let plistPath = dstApp.appendingPathComponent("Contents/Info.plist")
-        let userDataDir = Self.appDataURL
-            .appendingPathComponent("profiles/\(selectedProfileName())/-/Web Applications/_crx_olcppkbdbkjjkmaedekgaajkgipnodan")
-            .path
 
-        // Check if the existing shim already has the correct path — skip if so.
-        if fm.fileExists(atPath: plistPath.path) {
-            if let content = try? String(contentsOf: plistPath, encoding: .utf8),
-               content.contains("<string>\(userDataDir)</string>") {
-                return nil  // Already correct, nothing to do.
-            }
-        }
-
-        // Find the template shim (shipped alongside the launcher).
-        let templateApp = Self.resolveHelperApp(name: "Darc.app")
-        let templatePlist = templateApp.appendingPathComponent("Contents/Info.plist")
-        guard fm.fileExists(atPath: templatePlist.path) else {
-            let msg = "Darc.app template not found at \(templateApp.path)"
-            appendLog("launcher", msg)
-            return msg
-        }
-
-        do {
-            // Delete the old shim entirely to avoid modifying an existing .app bundle.
-            if fm.fileExists(atPath: dstApp.path) {
-                try fm.removeItem(at: dstApp)
-            }
-
-            // Build the shim in a staging directory (without .app extension) to
-            // avoid triggering macOS App Management protection during file writes.
-            let stagingDir = Self.appDataURL.appendingPathComponent("Darc.app-staging")
-            if fm.fileExists(atPath: stagingDir.path) {
-                try fm.removeItem(at: stagingDir)
-            }
-
-            // Copy template contents, skipping _CodeSignature.
-            let srcContents = templateApp.appendingPathComponent("Contents")
-            let dstContents = stagingDir.appendingPathComponent("Contents")
-            let skipDirs: Set<String> = ["_CodeSignature"]
-            if let items = try? fm.contentsOfDirectory(atPath: srcContents.path) {
-                for item in items where !skipDirs.contains(item) {
-                    let src = srcContents.appendingPathComponent(item)
-                    let dst = dstContents.appendingPathComponent(item)
-                    try fm.createDirectory(at: dst.deletingLastPathComponent(), withIntermediateDirectories: true)
-                    try fm.copyItem(at: src, to: dst)
-                }
-            }
-
-            // Substitute the placeholder in the plist.
-            let stagingPlist = dstContents.appendingPathComponent("Info.plist")
-            var content = try String(contentsOf: stagingPlist, encoding: .utf8)
-            content = content.replacingOccurrences(of: "__DARC_USER_DATA_DIR__", with: userDataDir)
-            try content.write(to: stagingPlist, atomically: true, encoding: .utf8)
-
-            // Rename staging dir to .app (atomic move, creates the .app in one step).
-            try fm.moveItem(at: stagingDir, to: dstApp)
-
-            appendLog("launcher", "Created Darc.app shim with profile \(selectedProfileName())")
-            return nil
-        } catch {
-            return "Failed to create Darc.app shim: \(error.localizedDescription)"
-        }
-    }
-
-    @discardableResult
-    func ensureChromeFlags() -> Bool {
-        // let localStatePath = Self.appDataURL.appendingPathComponent("profiles/default/Local State")
-        // let fm = FileManager.default
-
-        // if !fm.fileExists(atPath: localStatePath.path) {
-        //     let initial: [String: Any] = ["browser": ["enabled_labs_experiments": Self.requiredChromeFlags]]
-        //     do {
-        //         try fm.createDirectory(at: localStatePath.deletingLastPathComponent(), withIntermediateDirectories: true)
-        //         let data = try JSONSerialization.data(withJSONObject: initial, options: [.prettyPrinted])
-        //         try data.write(to: localStatePath, options: .atomic)
-        //         return true
-        //     } catch { return false }
-        // }
-
-        // guard let data = try? Data(contentsOf: localStatePath),
-        //       var root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
-        //     return false
-        // }
-
-        // var browser = root["browser"] as? [String: Any] ?? [:]
-        // var experiments = browser["enabled_labs_experiments"] as? [String] ?? []
-        // var modified = false
-
-        // for flag in Self.requiredChromeFlags where !experiments.contains(flag) {
-        //     experiments.append(flag)
-        //     modified = true
-        // }
-
-        // browser["enabled_labs_experiments"] = experiments
-        // root["browser"] = browser
-
-        // if modified {
-        //     do {
-        //         let updated = try JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted])
-        //         try updated.write(to: localStatePath, options: .atomic)
-        //     } catch { return false }
-        // }
-
-        return true
-    }
 
     /// Returns the currently selected Chrome variant.  Defaults to "helium" when no variant is saved.
     /// Returns `nil` if the selected variant is not installed — never silently falls back to another browser.

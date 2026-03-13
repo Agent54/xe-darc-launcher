@@ -134,12 +134,16 @@ func showSetupProgress(message: String) {
     pathLabel.lineBreakMode = .byTruncatingMiddle
     vfx.addSubview(pathLabel)
 
-    // Status text
+    // Status text (supports multi-line wrapping for longer messages)
     let status = NSTextField(labelWithString: "Preparing...")
-    status.frame = NSRect(x: pad, y: h - iconSize - 125, width: w - pad * 2, height: 18)
-    status.font = .systemFont(ofSize: 11)
+    status.frame = NSRect(x: pad, y: 70, width: w - pad * 2, height: h - iconSize - 125 - 70)
+    status.font = .systemFont(ofSize: 12)
     status.textColor = NSColor.white.withAlphaComponent(0.6)
     status.alignment = .center
+    status.maximumNumberOfLines = 0
+    status.lineBreakMode = .byWordWrapping
+    status.cell?.wraps = true
+    status.cell?.isScrollable = false
     vfx.addSubview(status)
     _statusLabel = status
 

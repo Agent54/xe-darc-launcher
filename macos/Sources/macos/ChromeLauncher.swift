@@ -25,7 +25,6 @@ extension ExternalState {
     /// Command-line flags passed to Chrome on every launch.
     static let chromeFlags: [String] = [
         "--silent-launch",
-        "--remote-allow-origins=https://localhost:5194",
         "--no-default-browser-check",
         "--no-first-run",
         "--flag-switches-begin",
