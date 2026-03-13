@@ -391,9 +391,9 @@ final class ExternalState: @unchecked Sendable {
 
     func startDarc() -> String? {
         if !chromeRunning, let err = startChrome() { return err }
-        _ = ensureDarcAppShim()
 
-        let appURL = Self.appDataURL.appendingPathComponent("Darc.app")
+        let profileName = selectedProfileName()
+        let appURL = Self.appDataURL.appendingPathComponent("shims/\(profileName)/Darc.app")
         let loader = appURL.appendingPathComponent("Contents/MacOS/app_mode_loader").path
         guard FileManager.default.isExecutableFile(atPath: loader) else {
             let msg = "Darc loader not found at \(loader)"

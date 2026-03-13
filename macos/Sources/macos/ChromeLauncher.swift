@@ -27,6 +27,7 @@ extension ExternalState {
         "--remote-allow-origins=https://localhost:5194",
         "--no-default-browser-check",
         "--flag-switches-begin",
+        "--no-first-run",
         "--enable-features=AppShimNotificationAttribution,DesktopPWAsAdditionalWindowingControls,DesktopPWAsLinkCapturingWithScopeExtensions,DesktopPWAsSubApps,IsolatedWebAppDevMode,IsolatedWebApps,OverscrollEffectOnNonRootScrollers,UseAdHocSigningForWebAppShims,PwaNavigationCapturing,UnframedIwa,WebAppBorderless,WebAppPredictableAppUpdating",
         "--disable-features=CADisplayLinkInBrowser",
         "--flag-switches-end"
@@ -313,18 +314,13 @@ private class CDPHandles: @unchecked Sendable {
 // /Users/jan/Library/Application\ Support/dev.xe.darc/Helium.app/Contents/MacOS/Helium \
 //   --headless=new \
 //   --user-data-dir="/Users/jan/Library/Application Support/dev.xe.darc/beat" \
-//   --no-first-run \
-//   --disable-extensions \
-//   --screenshot=/dev/null --no-first-run about:blank
+//  \
 
-// cp -f /Users/jan/Dev/xe/darc-launcher/macos/Preferences.json /Users/jan/Library/Application\ Support/dev.xe.darc/beat/Default/Preferences.json
+
 
 // /Users/jan/Library/Application\ Support/dev.xe.darc/Helium.app/Contents/MacOS/Helium \
 //   --user-data-dir="/Users/jan/Library/Application Support/dev.xe.darc/beat" \
 //   --remote-debugging-port=9226 \
 //   --disable-features=CADisplayLinkInBrowser \
 //   --remote-allow-origins=https://localhost:5194 \
-//   --no-default-browser-check \
-//   --silent-launch \
-//   --no-first-run \
 //   --headless \
