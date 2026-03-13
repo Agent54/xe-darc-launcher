@@ -171,14 +171,20 @@ extension ExternalState {
                 return
             }
 
-            // Close any Finder windows that may have opened for the shim's source folder
+            // Close any Finder windows showing the Helium/Chromium Apps folder
+            // Uses System Events (Accessibility permission) instead of Finder Automation permission
             Thread.sleep(forTimeInterval: 2.0)
             let closeScript = """
-            tell application "Finder"
-                set wList to every Finder window whose name contains "Helium" or name contains "Chromium"
-                repeat with w in wList
-                    close w
-                end repeat
+            tell application "System Events"
+                tell process "Finder"
+                    set windowList to every window
+                    repeat with w in windowList
+                        set n to name of w
+                        if n contains "Helium" or n contains "Chromium" then
+                            click button 1 of w
+                        end if
+                    end repeat
+                end tell
             end tell
             """
             let osascript = Process()
@@ -188,7 +194,6 @@ extension ExternalState {
             osascript.standardError = FileHandle.nullDevice
             try? osascript.run()
             osascript.waitUntilExit()
-            self.appendLog("launcher", "Attempted to close Finder windows (exit=\(osascript.terminationStatus))")
 
             // Stop Chrome
             self.appendLog("launcher", "Stopping Chrome for Preferences.json refresh...")
