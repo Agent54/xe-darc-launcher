@@ -39,10 +39,14 @@ var setupCancellation: CancellationToken { _cancellation }
 /// Show the setup progress window. Call from main thread.
 @MainActor
 func showSetupProgress(message: String) {
-    let pathWidth = max(500, (message as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 13, weight: .medium)]).width + 80)
+    // Size window to fit the path
+    let pathFont = NSFont.systemFont(ofSize: 11)
+    let pathTextWidth = (message as NSString).size(withAttributes: [.font: pathFont]).width + 100
+    let w = max(420, min(pathTextWidth, 700))
+    let h: CGFloat = 320
     let panel = NSPanel(
-        contentRect: NSRect(x: 0, y: 0, width: pathWidth, height: 150),
-        styleMask: [.titled, .fullSizeContentView, .nonactivatingPanel],
+        contentRect: NSRect(x: 0, y: 0, width: w, height: h),
+        styleMask: [.titled, .fullSizeContentView],
         backing: .buffered,
         defer: false
     )
@@ -51,39 +55,65 @@ func showSetupProgress(message: String) {
     panel.isMovableByWindowBackground = true
     panel.backgroundColor = .clear
     panel.isOpaque = false
-    panel.level = .floating
+    panel.level = .normal
     panel.center()
     panel.isReleasedWhenClosed = false
     panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
     panel.hidesOnDeactivate = false
 
-    let vfx = NSVisualEffectView(frame: NSRect(x: 0, y: 0, width: pathWidth, height: 150))
+    let vfx = NSVisualEffectView(frame: NSRect(x: 0, y: 0, width: w, height: h))
     vfx.material = .hudWindow
     vfx.blendingMode = .behindWindow
     vfx.state = .active
     vfx.wantsLayer = true
-    vfx.layer?.cornerRadius = 12
+    vfx.layer?.cornerRadius = 16
     vfx.layer?.masksToBounds = true
     vfx.autoresizingMask = [.width, .height]
     panel.contentView = vfx
 
-    let innerWidth = pathWidth - 60
+    let pad: CGFloat = 40
 
-    let title = NSTextField(labelWithString: message)
-    title.frame = NSRect(x: 30, y: 105, width: innerWidth, height: 20)
-    title.font = .systemFont(ofSize: 13, weight: .medium)
+    // Large centered app icon
+    let iconSize: CGFloat = 80
+    let iconView = NSImageView(frame: NSRect(x: (w - iconSize) / 2, y: h - iconSize - 50, width: iconSize, height: iconSize))
+    if let resourceURL = Bundle.main.resourceURL,
+       let icon = NSImage(contentsOf: resourceURL.appendingPathComponent("app.icns")) {
+        iconView.image = icon
+    } else {
+        iconView.image = NSApp.applicationIconImage
+    }
+    iconView.imageScaling = .scaleProportionallyUpOrDown
+    vfx.addSubview(iconView)
+
+    // "Setting up Darc" title centered below icon
+    let title = NSTextField(labelWithString: "Setting up Darc")
+    title.frame = NSRect(x: pad, y: h - iconSize - 80, width: w - pad * 2, height: 22)
+    title.font = .systemFont(ofSize: 15, weight: .semibold)
     title.textColor = .white
+    title.alignment = .center
     vfx.addSubview(title)
     _titleLabel = title
 
+    // Path on its own line
+    let pathLabel = NSTextField(labelWithString: message)
+    pathLabel.frame = NSRect(x: 20, y: h - iconSize - 103, width: w - 40, height: 16)
+    pathLabel.font = .systemFont(ofSize: 11)
+    pathLabel.textColor = NSColor.white.withAlphaComponent(0.45)
+    pathLabel.alignment = .center
+    pathLabel.lineBreakMode = .byTruncatingMiddle
+    vfx.addSubview(pathLabel)
+
+    // Status text
     let status = NSTextField(labelWithString: "Preparing...")
-    status.frame = NSRect(x: 30, y: 82, width: innerWidth, height: 18)
+    status.frame = NSRect(x: pad, y: h - iconSize - 125, width: w - pad * 2, height: 18)
     status.font = .systemFont(ofSize: 11)
     status.textColor = NSColor.white.withAlphaComponent(0.6)
+    status.alignment = .center
     vfx.addSubview(status)
     _statusLabel = status
 
-    let bar = NSProgressIndicator(frame: NSRect(x: 30, y: 55, width: innerWidth, height: 6))
+    // Progress bar
+    let bar = NSProgressIndicator(frame: NSRect(x: pad, y: 55, width: w - pad * 2, height: 6))
     bar.style = .bar
     bar.minValue = 0
     bar.maxValue = 100
@@ -93,15 +123,17 @@ func showSetupProgress(message: String) {
     vfx.addSubview(bar)
     _progressBar = bar
 
-    let cancelButton = NSButton(title: "Cancel", target: nil, action: #selector(SetupCancelHelper.cancelSetup))
-    cancelButton.frame = NSRect(x: pathWidth - 100, y: 15, width: 70, height: 28)
+    // Cancel button centered at bottom
+    let cancelButton = NSButton(title: "Cancel", target: SetupCancelHelper.shared, action: #selector(SetupCancelHelper.cancelSetup))
+    cancelButton.frame = NSRect(x: (w - 80) / 2, y: 15, width: 80, height: 28)
     cancelButton.bezelStyle = .recessed
     cancelButton.isBordered = true
     cancelButton.contentTintColor = NSColor.white.withAlphaComponent(0.8)
     cancelButton.refusesFirstResponder = true
-    cancelButton.target = SetupCancelHelper.shared
     vfx.addSubview(cancelButton)
 
+    // Temporarily show Dock icon so user can click to bring window forward
+    NSApp.setActivationPolicy(.regular)
     panel.makeKeyAndOrderFront(nil)
     NSApp.activate(ignoringOtherApps: true)
     _setupWindow = panel
@@ -122,6 +154,8 @@ func closeSetupProgress() {
     _progressBar = nil
     _titleLabel = nil
     _statusLabel = nil
+    // Restore accessory (no Dock icon) mode
+    NSApp.setActivationPolicy(.accessory)
 }
 
 // Helper to wire up the cancel button action
@@ -133,6 +167,7 @@ private class SetupCancelHelper: NSObject {
         _statusLabel?.stringValue = "Cancelling..."
         _setupWindow?.close()
         _setupWindow = nil
+        NSApp.setActivationPolicy(.accessory)
     }
 }
 

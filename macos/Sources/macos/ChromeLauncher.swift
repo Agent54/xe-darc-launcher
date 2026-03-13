@@ -5,6 +5,21 @@ import Foundation
 
 extension ExternalState {
 
+    /// File handles for Chrome DevTools Protocol pipe transport.
+    /// Write CDP commands to `cdpWriteHandle`, read responses from `cdpReadHandle`.
+    /// These are set when Chrome starts with --remote-debugging-pipe and can be
+    /// bridged to a Unix socket for workerd or other consumers.
+    private static let _cdpHandles = CDPHandles()
+
+    var cdpWriteHandle: FileHandle? {
+        get { Self._cdpHandles.writeHandle }
+        set { Self._cdpHandles.writeHandle = newValue }
+    }
+    var cdpReadHandle: FileHandle? {
+        get { Self._cdpHandles.readHandle }
+        set { Self._cdpHandles.readHandle = newValue }
+    }
+
     /// Command-line flags passed to Chrome on every launch.
     static let chromeFlags: [String] = [
         "--silent-launch",
@@ -41,9 +56,33 @@ extension ExternalState {
         ] + Self.chromeFlags
         if boolSetting("chrome_headless", default: true) { args.append("--headless") }
 
+        // Create pipe pairs for Chrome DevTools Protocol pipe transport.
+        // Chrome reads commands from fd 3 and writes responses to fd 4.
+        // We keep the other ends for our launcher / future workerd bridge.
+        let toChrome = Pipe()    // we write → Chrome reads on fd 3
+        let fromChrome = Pipe()  // Chrome writes on fd 4 → we read
+
         do {
-            subprocesses["browser"] = try spawnLongRunningProcess(executable: chrome.executablePath, arguments: args, source: "browser")
-            appendLog("launcher", "Chrome started (\(chrome.name), pid=\(subprocesses["browser"]?.processIdentifier ?? -1), isRunning=\(chromeRunning))")
+            let process = try spawnLongRunningProcessWithPipes(
+                executable: chrome.executablePath,
+                arguments: args,
+                source: "browser",
+                extraFDs: [
+                    3: toChrome.fileHandleForReading,
+                    4: fromChrome.fileHandleForWriting
+                ]
+            )
+            subprocesses["browser"] = process
+
+            // Store the pipe handles for later CDP communication (e.g. workerd bridge)
+            cdpWriteHandle = toChrome.fileHandleForWriting
+            cdpReadHandle = fromChrome.fileHandleForReading
+
+            // Close the child-side ends in our process
+            toChrome.fileHandleForReading.closeFile()
+            fromChrome.fileHandleForWriting.closeFile()
+
+            appendLog("launcher", "Chrome started with debug pipe (\(chrome.name), pid=\(process.processIdentifier), isRunning=\(chromeRunning))")
             print("[ExternalState] Chrome started, isRunning=\(chromeRunning)")
             return nil
         } catch {
@@ -60,8 +99,43 @@ extension ExternalState {
         appendLog("launcher", "Chrome stopped (wasRunning=\(wasRunning))")
         print("[ExternalState] Chrome stopped (wasRunning=\(wasRunning))")
     }
+    /// Spawn a process with extra file descriptors mapped into the child using posix_spawn.
+    /// Returns a Process-like pid. The log output pipe is set up for the `source` label.
+    func spawnLongRunningProcessWithPipes(executable: String, arguments: [String], source: String, extraFDs: [Int32: FileHandle]) throws -> Process {
+        // Clear close-on-exec flag on the file descriptors we want to pass through
+        for (_, handle) in extraFDs {
+            let fd = handle.fileDescriptor
+            let flags = fcntl(fd, F_GETFD)
+            if flags != -1 {
+                fcntl(fd, F_SETFD, flags & ~FD_CLOEXEC)
+            }
+        }
+
+        // Build a shell command that does dup2 for each extra fd then exec's the target
+        var dup2s = ""
+        for (targetFD, handle) in extraFDs.sorted(by: { $0.key < $1.key }) {
+            let srcFD = handle.fileDescriptor
+            if srcFD != targetFD {
+                dup2s += "exec \(targetFD)<>/dev/fd/\(srcFD) ; "
+            }
+        }
+        let cmd = dup2s + "exec " + ([executable] + arguments).map { $0.shellEscaped }.joined(separator: " ")
+
+        return try spawnLongRunningProcess(executable: "/bin/bash", arguments: ["-c", cmd], source: source)
+    }
 }
 
+/// Thread-safe storage for CDP pipe handles.
+private class CDPHandles: @unchecked Sendable {
+    var writeHandle: FileHandle?
+    var readHandle: FileHandle?
+}
+
+private extension String {
+    var shellEscaped: String {
+        "'" + replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+}
 
 // DO NOT DELETE:
 // # new method!!:

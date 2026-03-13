@@ -16,6 +16,7 @@ func downloadSourceAssetsIfNeeded(dataURL: URL, log: @escaping (String, String) 
 
     struct AssetInfo {
         let name: String
+        let label: String
         let url: URL
         let unzip: Bool
         let filename: String
@@ -25,6 +26,7 @@ func downloadSourceAssetsIfNeeded(dataURL: URL, log: @escaping (String, String) 
         guard let urlString = info["url"] as? String, !urlString.isEmpty,
               let url = URL(string: urlString) else { continue }
         let shouldUnzip = info["unzip"] as? Bool ?? true
+        let label = info["label"] as? String ?? name
         let filename = url.lastPathComponent
         let marker = dataURL.appendingPathComponent(name)
         let appMarker = dataURL.appendingPathComponent("\(name).app")
@@ -32,7 +34,7 @@ func downloadSourceAssetsIfNeeded(dataURL: URL, log: @escaping (String, String) 
         if fm.fileExists(atPath: marker.path) || fm.fileExists(atPath: appMarker.path) || fm.fileExists(atPath: fileMarker.path) {
             continue
         }
-        pending.append(AssetInfo(name: name, url: url, unzip: shouldUnzip, filename: filename))
+        pending.append(AssetInfo(name: name, label: label, url: url, unzip: shouldUnzip, filename: filename))
     }
 
     guard !pending.isEmpty else { return }
@@ -40,7 +42,7 @@ func downloadSourceAssetsIfNeeded(dataURL: URL, log: @escaping (String, String) 
     // Show progress on main thread (synchronous to ensure it's visible before we start)
     let sem = DispatchSemaphore(value: 0)
     DispatchQueue.main.async {
-        showSetupProgress(message: "Setting up Darc in \(dataURL.path)")
+        showSetupProgress(message: dataURL.path)
         sem.signal()
     }
     sem.wait()
@@ -52,7 +54,7 @@ func downloadSourceAssetsIfNeeded(dataURL: URL, log: @escaping (String, String) 
         if cancel.isCancelled { break }
 
         DispatchQueue.main.async {
-            updateSetupProgress(status: "Downloading \(asset.name)...", progress: (Double(index) / totalAssets) * 100)
+            updateSetupProgress(status: "Downloading \(asset.label)...", progress: (Double(index) / totalAssets) * 100)
         }
 
         log("launcher", "Downloading \(asset.name) from \(asset.url.absoluteString)")
@@ -103,7 +105,7 @@ func downloadSourceAssetsIfNeeded(dataURL: URL, log: @escaping (String, String) 
 
         if asset.unzip {
             DispatchQueue.main.async {
-                updateSetupProgress(status: "Extracting \(asset.name)...")
+                updateSetupProgress(status: "Extracting \(asset.label)...")
             }
             let proc = Process()
             proc.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
@@ -113,6 +115,12 @@ func downloadSourceAssetsIfNeeded(dataURL: URL, log: @escaping (String, String) 
                 proc.waitUntilExit()
                 if proc.terminationStatus == 0 {
                     log("launcher", "Extracted \(asset.name) to \(dataURL.path)")
+                    // Remove quarantine xattr so macOS doesn't block execution
+                    let xattr = Process()
+                    xattr.executableURL = URL(fileURLWithPath: "/usr/bin/xattr")
+                    xattr.arguments = ["-r", "-d", "com.apple.quarantine", dataURL.path]
+                    try? xattr.run()
+                    xattr.waitUntilExit()
                 } else {
                     log("launcher", "ditto failed for \(asset.name) with exit code \(proc.terminationStatus)")
                 }
