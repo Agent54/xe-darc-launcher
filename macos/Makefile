@@ -22,6 +22,10 @@ NOTARY_PROFILE ?= notarytool-profile
 
 all: bundle
 
+zip-helpers:
+	@echo "Zipping helpers..."
+	@ditto -c -k --keepParent $(BUILD_DIR)/Helium.zip Sources/macos/helpers/Helium.app
+
 build:
 	swift build -c release
 

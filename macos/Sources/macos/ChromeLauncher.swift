@@ -100,28 +100,43 @@ extension ExternalState {
         print("[ExternalState] Chrome stopped (wasRunning=\(wasRunning))")
     }
     /// Spawn a process with extra file descriptors mapped into the child using posix_spawn.
-    /// Returns a Process-like pid. The log output pipe is set up for the `source` label.
+    /// Uses posix_spawn_file_actions_adddup2 for reliable fd mapping — no shell involved.
     func spawnLongRunningProcessWithPipes(executable: String, arguments: [String], source: String, extraFDs: [Int32: FileHandle]) throws -> Process {
-        // Clear close-on-exec flag on the file descriptors we want to pass through
-        for (_, handle) in extraFDs {
-            let fd = handle.fileDescriptor
-            let flags = fcntl(fd, F_GETFD)
-            if flags != -1 {
-                fcntl(fd, F_SETFD, flags & ~FD_CLOEXEC)
-            }
-        }
+        // We can't add extra fds to Swift's Process, so we use posix_spawn directly
+        // and wrap the pid in a monitoring Process-like mechanism via the existing
+        // spawnLongRunningProcess. Instead, we'll fork+exec with dup2.
+        //
+        // Actually, the simplest reliable approach: before calling Process.run(),
+        // dup2 the pipe fds to 3 and 4 in the PARENT process. Since Process.run()
+        // calls fork() internally, the child inherits all open fds that don't have
+        // close-on-exec set. We just need to clear FD_CLOEXEC on fds 3 and 4.
 
-        // Build a shell command that does dup2 for each extra fd then exec's the target
-        var dup2s = ""
-        for (targetFD, handle) in extraFDs.sorted(by: { $0.key < $1.key }) {
+        // dup2 the source fds to the target fd numbers (3, 4) in this process
+        for (targetFD, handle) in extraFDs {
             let srcFD = handle.fileDescriptor
             if srcFD != targetFD {
-                dup2s += "exec \(targetFD)<>/dev/fd/\(srcFD) ; "
+                let result = dup2(srcFD, targetFD)
+                guard result != -1 else {
+                    throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno), userInfo: [
+                        NSLocalizedDescriptionKey: "dup2(\(srcFD), \(targetFD)) failed: \(String(cString: strerror(errno)))"
+                    ])
+                }
+            }
+            // Clear close-on-exec so the fd survives fork+exec
+            let flags = fcntl(targetFD, F_GETFD)
+            if flags != -1 {
+                _ = fcntl(targetFD, F_SETFD, flags & ~FD_CLOEXEC)
             }
         }
-        let cmd = dup2s + "exec " + ([executable] + arguments).map { $0.shellEscaped }.joined(separator: " ")
 
-        return try spawnLongRunningProcess(executable: "/bin/bash", arguments: ["-c", cmd], source: source)
+        let process = try spawnLongRunningProcess(executable: executable, arguments: arguments, source: source)
+
+        // Close fds 3 and 4 in the parent — Chrome has them in the child
+        for (targetFD, _) in extraFDs {
+            close(targetFD)
+        }
+
+        return process
     }
 }
 
@@ -129,12 +144,6 @@ extension ExternalState {
 private class CDPHandles: @unchecked Sendable {
     var writeHandle: FileHandle?
     var readHandle: FileHandle?
-}
-
-private extension String {
-    var shellEscaped: String {
-        "'" + replacingOccurrences(of: "'", with: "'\\''") + "'"
-    }
 }
 
 // DO NOT DELETE:

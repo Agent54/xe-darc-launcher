@@ -132,6 +132,11 @@ func showSetupProgress(message: String) {
     cancelButton.refusesFirstResponder = true
     vfx.addSubview(cancelButton)
 
+    // Set the app icon for Dock display
+    if let resourceURL = Bundle.main.resourceURL,
+       let icon = NSImage(contentsOf: resourceURL.appendingPathComponent("app.icns")) {
+        NSApp.applicationIconImage = icon
+    }
     // Temporarily show Dock icon so user can click to bring window forward
     NSApp.setActivationPolicy(.regular)
     panel.makeKeyAndOrderFront(nil)
