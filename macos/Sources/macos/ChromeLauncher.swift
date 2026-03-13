@@ -154,8 +154,8 @@ extension ExternalState {
             if let plistData = try? Data(contentsOf: systemShimPlist),
                let plist = try? PropertyListSerialization.propertyList(from: plistData, format: nil) as? [String: Any],
                let shimUserDataDir = plist["CrAppModeUserDataDir"] as? String {
-                if shimUserDataDir != profileDir.path {
-                    self.appendLog("launcher", "App shim CrAppModeUserDataDir mismatch: \(shimUserDataDir) != \(profileDir.path), skipping")
+                if !shimUserDataDir.hasPrefix(profileDir.path) {
+                    self.appendLog("launcher", "App shim CrAppModeUserDataDir mismatch: \(shimUserDataDir) does not start with \(profileDir.path), skipping")
                     return
                 }
             }
