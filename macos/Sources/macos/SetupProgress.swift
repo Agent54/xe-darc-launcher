@@ -125,8 +125,10 @@ func showSetupProgress(message: String) {
     vfx.addSubview(title)
     _titleLabel = title
 
-    // Path on its own line
-    let pathLabel = NSTextField(labelWithString: message)
+    // Path on its own line (clickable to open in Finder)
+    let pathString = message.isEmpty ? "" : "App Dir: \(message)"
+    let pathLabel = ClickablePathLabel(labelWithString: pathString)
+    pathLabel.folderPath = message
     pathLabel.frame = NSRect(x: 20, y: h - iconSize - 103, width: w - 40, height: 16)
     pathLabel.font = .systemFont(ofSize: 11)
     pathLabel.textColor = NSColor.white.withAlphaComponent(0.45)
@@ -209,6 +211,24 @@ func closeSetupProgress() {
     _statusLabel = nil
     // Restore accessory (no Dock icon) mode
     NSApp.setActivationPolicy(.accessory)
+}
+
+// Clickable label that opens the folder path in Finder on click
+@MainActor
+private class ClickablePathLabel: NSTextField {
+    var folderPath: String = ""
+
+    override func resetCursorRects() {
+        if !folderPath.isEmpty {
+            addCursorRect(bounds, cursor: .pointingHand)
+        }
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        guard !folderPath.isEmpty else { return }
+        let url = URL(fileURLWithPath: folderPath)
+        NSWorkspace.shared.open(url)
+    }
 }
 
 // Helper to wire up the cancel button action
