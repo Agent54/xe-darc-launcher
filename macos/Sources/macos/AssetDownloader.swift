@@ -125,6 +125,17 @@ func downloadSourceAssetsIfNeeded(dataURL: URL, log: @escaping (String, String) 
         guard let downloadedFile else { continue }
 
         if asset.unzip {
+            // Validate the downloaded file before extraction
+            let fileSize = (try? fm.attributesOfItem(atPath: downloadedFile.path)[.size] as? Int) ?? 0
+            log("launcher", "Downloaded \(asset.name): \(fileSize) bytes at \(downloadedFile.path)")
+            if fileSize < 1000 {
+                log("launcher", "Downloaded file for \(asset.name) is too small (\(fileSize) bytes), likely corrupt")
+                try? fm.removeItem(at: downloadedFile)
+                let action = showSetupError(message: "Downloaded file for \(asset.label) appears corrupt (\(fileSize) bytes). Check the download URL.")
+                if action == .retry { continue }
+                break
+            }
+
             DispatchQueue.main.async {
                 updateSetupProgress(status: "Extracting \(asset.label)...")
             }
@@ -143,9 +154,17 @@ func downloadSourceAssetsIfNeeded(dataURL: URL, log: @escaping (String, String) 
                     }
                 } else {
                     log("launcher", "ditto failed for \(asset.name) with exit code \(proc.terminationStatus)")
+                    try? fm.removeItem(at: downloadedFile)
+                    let action = showSetupError(message: "Failed to extract \(asset.label) (ditto exit code \(proc.terminationStatus))")
+                    if action == .retry { continue }
+                    break
                 }
             } catch {
                 log("launcher", "Failed to extract \(asset.name): \(error.localizedDescription)")
+                try? fm.removeItem(at: downloadedFile)
+                let action = showSetupError(message: "Failed to extract \(asset.label): \(error.localizedDescription)")
+                if action == .retry { continue }
+                break
             }
             try? fm.removeItem(at: downloadedFile)
         } else {

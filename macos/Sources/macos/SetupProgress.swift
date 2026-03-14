@@ -299,7 +299,7 @@ private class ClickablePathLabel: NSTextField {
     override func mouseDown(with event: NSEvent) {
         guard !folderPath.isEmpty else { return }
         let url = URL(fileURLWithPath: folderPath)
-        NSWorkspace.shared.open(url)
+        NSWorkspace.shared.activateFileViewerSelecting([url])
     }
 }
 
