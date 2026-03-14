@@ -107,12 +107,12 @@ dmg: notarize
 	@rm -f "$(BUILD_DIR)/$(DMG_NAME)"
 	@create-dmg \
 		--volname "$(APP_NAME)" \
-		--window-pos 200 120 \
+		--window-pos 100 20 \
 		--window-size 600 400 \
 		--icon-size 100 \
-		--icon "$(APP_NAME).app" 150 190 \
+		--icon "$(APP_NAME).app" 100 140 \
 		--hide-extension "$(APP_NAME).app" \
-		--app-drop-link 450 190 \
+		--app-drop-link 400 140 \
 		--codesign "$(DEVELOPER_ID)" \
 		"$(BUILD_DIR)/$(DMG_NAME)" \
 		"$(APP_BUNDLE)"
