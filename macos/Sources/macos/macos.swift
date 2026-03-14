@@ -174,7 +174,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var chromeSubmenu: NSMenu?
 
     private func buildDarcSubmenu(parent: NSMenu) -> NSMenuItem {
-        let item = NSMenuItem(title: "Darc", action: nil, keyEquivalent: "")
+        let item = NSMenuItem(title: "Darc Launcher", action: nil, keyEquivalent: "")
         let submenu = NSMenu()
         submenu.autoenablesItems = false
         let startItem = NSMenuItem(title: "Start", action: #selector(darcStartAction), keyEquivalent: "")
