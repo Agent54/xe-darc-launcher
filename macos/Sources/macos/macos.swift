@@ -131,15 +131,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(NSMenuItem(title: "Status: Ready", action: nil, keyEquivalent: ""))
         menu.addItem(.separator())
 
-        buildProfilesSubmenu(parent: menu)
-        darcItem = buildDarcSubmenu(parent: menu)
-        chromeItem = buildChromeSubmenu(parent: menu)
+        let newProfileItem = NSMenuItem(title: "New Profile...", action: #selector(newProfileAction), keyEquivalent: "")
+        newProfileItem.target = self
+        menu.addItem(newProfileItem)
+
+        // Profile entries are inserted dynamically between here and the Legacy VM separator
+        profileInsertionIndex = menu.numberOfItems
+        rebuildProfileItems()
+
+        menu.addItem(.separator())
         legacyVMItem = buildSubmenu(parent: menu, title: "Legacy VM", startSelector: #selector(legacyVMStartAction), stopSelector: #selector(legacyVMStopAction), startRef: &legacyVMStartItem, stopRef: &legacyVMStopItem)
         systemVMItem = buildSubmenu(parent: menu, title: "System VM", startSelector: #selector(systemVMStartAction), stopSelector: #selector(systemVMStopAction), startRef: &systemVMStartItem, stopRef: &systemVMStopItem)
         appVMItem = buildSubmenu(parent: menu, title: "App VM", startSelector: #selector(appVMStartAction), stopSelector: #selector(appVMStopAction), startRef: &appVMStartItem, stopRef: &appVMStopItem)
 
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "System Logs", action: #selector(showLogsAction), keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: "Save Window Positions", action: #selector(darcSaveWindowPositionsAction), keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: "Restore Window Positions", action: #selector(darcRestoreWindowPositionsAction), keyEquivalent: ""))
         menu.addItem(.separator())
 
         runAtStartupItem = NSMenuItem(title: "Run at Startup", action: #selector(runAtStartupAction), keyEquivalent: "")
@@ -173,48 +181,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var chromeVariantItems: [NSMenuItem] = []
     private var chromeSubmenu: NSMenu?
 
-    private func buildDarcSubmenu(parent: NSMenu) -> NSMenuItem {
-        let item = NSMenuItem(title: "Darc Launcher", action: nil, keyEquivalent: "")
-        let submenu = NSMenu()
-        submenu.autoenablesItems = false
-        let startItem = NSMenuItem(title: "Start", action: #selector(darcStartAction), keyEquivalent: "")
-        let stopItem = NSMenuItem(title: "Stop", action: #selector(darcStopAction), keyEquivalent: "")
-        let saveWindowsItem = NSMenuItem(title: "Save Window Positions", action: #selector(darcSaveWindowPositionsAction), keyEquivalent: "")
-        let restoreWindowsItem = NSMenuItem(title: "Restore Window Positions", action: #selector(darcRestoreWindowPositionsAction), keyEquivalent: "")
-        submenu.addItem(startItem)
-        submenu.addItem(stopItem)
-        submenu.addItem(.separator())
-        submenu.addItem(saveWindowsItem)
-        submenu.addItem(restoreWindowsItem)
-        item.submenu = submenu
-        parent.addItem(item)
-        darcStartItem = startItem
-        darcStopItem = stopItem
-        return item
-    }
 
-    private func buildChromeSubmenu(parent: NSMenu) -> NSMenuItem {
-        let item = NSMenuItem(title: "Chrome Engine", action: nil, keyEquivalent: "")
-        let submenu = NSMenu()
-        submenu.autoenablesItems = false
-        let start = NSMenuItem(title: "Start", action: #selector(chromeStartAction), keyEquivalent: "")
-        let stop = NSMenuItem(title: "Stop", action: #selector(chromeStopAction), keyEquivalent: "")
-        let headless = NSMenuItem(title: "Headless", action: #selector(chromeHeadlessAction), keyEquivalent: "")
-        submenu.addItem(start)
-        submenu.addItem(stop)
-        submenu.addItem(headless)
-
-        // Chrome variants (shown only when Option key is held)
-        refreshChromeMenuOptions(in: submenu)
-
-        item.submenu = submenu
-        parent.addItem(item)
-        chromeStartItem = start
-        chromeStopItem = stop
-        chromeHeadlessItem = headless
-        chromeSubmenu = submenu
-        return item
-    }
 
     private var chromeVariantSeparator: NSMenuItem?
 
@@ -259,28 +226,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
-    // MARK: - Profiles submenu
+    // MARK: - Per-profile menu items
 
-    private var profilesItem: NSMenuItem?
-    private var profilesSubmenu: NSMenu?
+    private var profileInsertionIndex: Int = 0
     private var profileMenuItems: [NSMenuItem] = []
-
-    private func buildProfilesSubmenu(parent: NSMenu) {
-        let profileName = ExternalState.shared.selectedProfileName()
-        let item = NSMenuItem(title: "Profile: \(profileName)", action: nil, keyEquivalent: "")
-        let submenu = NSMenu()
-        submenu.autoenablesItems = false
-        item.submenu = submenu
-        parent.addItem(item)
-        profilesItem = item
-        profilesSubmenu = submenu
-        rebuildProfileItems()
-    }
+    private var activeProfileItem: NSMenuItem?
 
     private func rebuildProfileItems() {
-        guard let submenu = profilesSubmenu else { return }
-        for old in profileMenuItems { submenu.removeItem(old) }
+        guard let menu = statusItem?.menu else { return }
+
+        // Remove old profile items
+        for old in profileMenuItems { menu.removeItem(old) }
         profileMenuItems.removeAll()
+
+        // Clear active-profile references
+        activeProfileItem = nil
+        darcItem = nil; darcStartItem = nil; darcStopItem = nil
+        chromeItem = nil; chromeStartItem = nil; chromeStopItem = nil
+        chromeHeadlessItem = nil; chromeSubmenu = nil
 
         let state = ExternalState.shared
         let selected = state.selectedProfileName()
@@ -291,23 +254,69 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             profiles.insert("default", at: 0)
         }
 
+        var insertIdx = profileInsertionIndex
         for name in profiles {
-            let menuItem = NSMenuItem(title: name, action: #selector(profileSelected(_:)), keyEquivalent: "")
-            menuItem.target = self
-            menuItem.representedObject = name
-            menuItem.state = (name == selected) ? .on : .off
-            submenu.addItem(menuItem)
-            profileMenuItems.append(menuItem)
+            let isActive = (name == selected)
+            let profileItem = NSMenuItem(title: name, action: nil, keyEquivalent: "")
+            let profileSubmenu = NSMenu()
+            profileSubmenu.autoenablesItems = false
+
+            // "Select" item with checkmark for active profile
+            let selectItem = NSMenuItem(title: "Select", action: #selector(profileSelected(_:)), keyEquivalent: "")
+            selectItem.target = self
+            selectItem.representedObject = name
+            selectItem.state = isActive ? .on : .off
+            profileSubmenu.addItem(selectItem)
+            profileSubmenu.addItem(.separator())
+
+            // Darc submenu
+            let darcSub = NSMenuItem(title: "Darc", action: nil, keyEquivalent: "")
+            let darcMenu = NSMenu()
+            darcMenu.autoenablesItems = false
+            let dStart = NSMenuItem(title: "Start", action: #selector(darcStartAction), keyEquivalent: "")
+            let dStop = NSMenuItem(title: "Stop", action: #selector(darcStopAction), keyEquivalent: "")
+            dStart.target = self; dStop.target = self
+            dStart.isEnabled = isActive; dStop.isEnabled = isActive
+            darcMenu.addItem(dStart)
+            darcMenu.addItem(dStop)
+            darcSub.submenu = darcMenu
+            profileSubmenu.addItem(darcSub)
+
+            // Chrome Engine submenu
+            let chromeSub = NSMenuItem(title: "Chrome Engine", action: nil, keyEquivalent: "")
+            let chromeMenu = NSMenu()
+            chromeMenu.autoenablesItems = false
+            let cStart = NSMenuItem(title: "Start", action: #selector(chromeStartAction), keyEquivalent: "")
+            let cStop = NSMenuItem(title: "Stop", action: #selector(chromeStopAction), keyEquivalent: "")
+            let cHeadless = NSMenuItem(title: "Headless", action: #selector(chromeHeadlessAction), keyEquivalent: "")
+            cStart.target = self; cStop.target = self; cHeadless.target = self
+            cStart.isEnabled = isActive; cStop.isEnabled = isActive; cHeadless.isEnabled = isActive
+            chromeMenu.addItem(cStart)
+            chromeMenu.addItem(cStop)
+            chromeMenu.addItem(cHeadless)
+            chromeSub.submenu = chromeMenu
+            profileSubmenu.addItem(chromeSub)
+
+            profileItem.submenu = profileSubmenu
+            menu.insertItem(profileItem, at: insertIdx)
+            profileMenuItems.append(profileItem)
+            insertIdx += 1
+
+            // Store references for the active profile so renderMenuLabels can update them
+            if isActive {
+                activeProfileItem = profileItem
+                darcItem = darcSub
+                darcStartItem = dStart
+                darcStopItem = dStop
+                chromeItem = chromeSub
+                chromeStartItem = cStart
+                chromeStopItem = cStop
+                chromeHeadlessItem = cHeadless
+                chromeSubmenu = chromeMenu
+                // Refresh chrome variant options in the active profile's chrome submenu
+                refreshChromeMenuOptions(in: chromeMenu)
+            }
         }
-
-        let sep = NSMenuItem.separator()
-        submenu.addItem(sep)
-        profileMenuItems.append(sep)
-
-        let newItem = NSMenuItem(title: "New...", action: #selector(newProfileAction), keyEquivalent: "")
-        newItem.target = self
-        submenu.addItem(newItem)
-        profileMenuItems.append(newItem)
     }
 
     @objc private func profileSelected(_ sender: NSMenuItem) {
@@ -440,25 +449,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func renderMenuLabels() {
         let state = ExternalState.shared
 
+        // Rebuild per-profile menu items (sets darcItem, chromeItem, etc.)
+        rebuildProfileItems()
+
+        // Update active profile title with status indicator
+        if let activeProfileItem {
+            let name = state.selectedProfileName()
+            let anyRunning = state.chromeRunning || state.darcRunning
+            let anyPending = pendingServices.contains("chrome") || pendingServices.contains("darc")
+            if anyPending {
+                activeProfileItem.title = "\(name) ⏳"
+            } else if anyRunning {
+                activeProfileItem.title = "\(name) 🟢"
+            } else {
+                activeProfileItem.title = name
+            }
+        }
+
+        // Update titles and enable states for active profile items
         darcItem?.title = serviceTitle("Darc", key: "darc", running: state.darcRunning)
         chromeItem?.title = serviceTitle("Chrome Engine", key: "chrome", running: state.chromeRunning)
 
-        // Force menu to notice title changes on submenu items
-        statusItem?.menu?.update()
-        legacyVMItem?.title = serviceTitle("Legacy VM", key: "legacyVM", running: state.legacyVMRunning)
-        systemVMItem?.title = serviceTitle("System VM", key: "systemVM", running: state.systemVMRunning)
-        appVMItem?.title = serviceTitle("App VM", key: "appVM", running: state.appVMRunning)
-
         let darcPending = pendingServices.contains("darc")
         let chromePending = pendingServices.contains("chrome")
-        let legacyPending = pendingServices.contains("legacyVM")
-        let systemPending = pendingServices.contains("systemVM")
-        let appPending = pendingServices.contains("appVM")
 
         darcStartItem?.isEnabled = !state.darcRunning && !darcPending
         darcStopItem?.isEnabled = state.darcRunning && !darcPending
         chromeStartItem?.isEnabled = !state.chromeRunning && !chromePending
         chromeStopItem?.isEnabled = state.chromeRunning && !chromePending
+        chromeHeadlessItem?.state = state.boolSetting("chrome_headless", default: false) ? .on : .off
+
+        // VM items
+        legacyVMItem?.title = serviceTitle("Legacy VM", key: "legacyVM", running: state.legacyVMRunning)
+        systemVMItem?.title = serviceTitle("System VM", key: "systemVM", running: state.systemVMRunning)
+        appVMItem?.title = serviceTitle("App VM", key: "appVM", running: state.appVMRunning)
+
+        let legacyPending = pendingServices.contains("legacyVM")
+        let systemPending = pendingServices.contains("systemVM")
+        let appPending = pendingServices.contains("appVM")
+
         legacyVMStartItem?.isEnabled = !state.legacyVMRunning && !legacyPending
         legacyVMStopItem?.isEnabled = state.legacyVMRunning && !legacyPending
         systemVMStartItem?.isEnabled = !state.systemVMRunning && !systemPending
@@ -466,16 +495,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         appVMStartItem?.isEnabled = !state.appVMRunning && !appPending
         appVMStopItem?.isEnabled = state.appVMRunning && !appPending
 
-        chromeHeadlessItem?.state = state.boolSetting("chrome_headless", default: false) ? .on : .off
         runAtStartupItem?.state = state.boolSetting("run_at_startup", default: false) ? .on : .off
         bindCapslockItem?.state = state.boolSetting("bind_capslock", default: false) ? .on : .off
 
-        // Rebuild dynamic submenu items (handles late discovery after background updateAll)
-        if let chromeSubmenu {
-            refreshChromeMenuOptions(in: chromeSubmenu)
-        }
-        profilesItem?.title = "Profile: \(state.selectedProfileName())"
-        rebuildProfileItems()
+        // Force menu to notice title changes
+        statusItem?.menu?.update()
     }
 
     private func runServiceAction(_ key: String, action: @escaping @Sendable () -> Void) {
