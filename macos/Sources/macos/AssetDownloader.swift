@@ -53,53 +53,76 @@ func downloadSourceAssetsIfNeeded(dataURL: URL, log: @escaping (String, String) 
     for (index, asset) in pending.enumerated() {
         if cancel.isCancelled { break }
 
-        DispatchQueue.main.async {
-            updateSetupProgress(status: "Downloading \(asset.label)...", progress: (Double(index) / totalAssets) * 100)
-        }
+        var downloadedFile: URL?
 
-        log("launcher", "Downloading \(asset.name) from \(asset.url.absoluteString)")
+        retryLoop: while true {
+            if cancel.isCancelled { break }
 
-        let downloadSem = DispatchSemaphore(value: 0)
-        nonisolated(unsafe) var downloadedFileURL: URL?
-        nonisolated(unsafe) var downloadError: Error?
-
-        let delegate = DownloadProgressDelegate(onProgress: { fraction in
             DispatchQueue.main.async {
-                let base = (Double(index) / totalAssets) * 100
-                let portion = (1.0 / totalAssets) * 100
-                updateSetupProgress(progress: base + fraction * portion)
+                updateSetupProgress(status: "Downloading \(asset.label)...", progress: (Double(index) / totalAssets) * 100)
             }
-        }, completion: { fileURL, error in
-            if let error {
-                downloadError = error
-            } else if let fileURL {
-                downloadedFileURL = fileURL
+
+            log("launcher", "Downloading \(asset.name) from \(asset.url.absoluteString)")
+
+            let downloadSem = DispatchSemaphore(value: 0)
+            nonisolated(unsafe) var downloadedFileURL: URL?
+            nonisolated(unsafe) var downloadError: Error?
+
+            let delegate = DownloadProgressDelegate(onProgress: { fraction in
+                DispatchQueue.main.async {
+                    let base = (Double(index) / totalAssets) * 100
+                    let portion = (1.0 / totalAssets) * 100
+                    updateSetupProgress(progress: base + fraction * portion)
+                }
+            }, completion: { fileURL, error in
+                if let error {
+                    downloadError = error
+                } else if let fileURL {
+                    downloadedFileURL = fileURL
+                }
+                downloadSem.signal()
+            })
+            let session = URLSession(configuration: .default, delegate: delegate, delegateQueue: nil)
+
+            let task = session.downloadTask(with: asset.url)
+            cancel.activeTask = task
+            task.resume()
+            downloadSem.wait()
+            cancel.activeTask = nil
+
+            if cancel.isCancelled {
+                if let f = downloadedFileURL { try? fm.removeItem(at: f) }
+                break
             }
-            downloadSem.signal()
-        })
-        let session = URLSession(configuration: .default, delegate: delegate, delegateQueue: nil)
 
-        let task = session.downloadTask(with: asset.url)
-        cancel.activeTask = task
-        task.resume()
-        downloadSem.wait()
-        cancel.activeTask = nil
+            if let error = downloadError {
+                log("launcher", "Failed to download \(asset.name): \(error.localizedDescription)")
+                let action = showSetupError(message: "Failed to download \(asset.label): \(error.localizedDescription)")
+                switch action {
+                case .retry: continue retryLoop
+                case .cancel:
+                    cancel.cancel()
+                    break retryLoop
+                }
+            }
 
-        if cancel.isCancelled {
-            // Clean up partial download in background
-            if let f = downloadedFileURL { try? fm.removeItem(at: f) }
-            break
+            if let f = downloadedFileURL {
+                downloadedFile = f
+                break retryLoop
+            } else {
+                log("launcher", "No file downloaded for \(asset.name)")
+                let action = showSetupError(message: "Download failed for \(asset.label) — no data received.")
+                switch action {
+                case .retry: continue retryLoop
+                case .cancel:
+                    cancel.cancel()
+                    break retryLoop
+                }
+            }
         }
 
-        if let error = downloadError {
-            log("launcher", "Failed to download \(asset.name): \(error.localizedDescription)")
-            continue
-        }
-
-        guard let downloadedFile = downloadedFileURL else {
-            log("launcher", "No file downloaded for \(asset.name)")
-            continue
-        }
+        if cancel.isCancelled { break }
+        guard let downloadedFile else { continue }
 
         if asset.unzip {
             DispatchQueue.main.async {

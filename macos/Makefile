@@ -31,50 +31,50 @@ build:
 
 package: build
 	@echo "Creating app package..."
-	@mkdir -p $(MACOS_DIR)
-	@mkdir -p $(RESOURCES)
-	@cp $(BUILD_DIR)/release/macos $(MACOS_DIR)/bin
-	@echo 'APPL????' > $(CONTENTS)/PkgInfo
-	@rsync -a Sources/macos/Resources/ $(RESOURCES)/
-	@rsync -a --delete Sources/macos/sandbox/ $(RESOURCES)/sandbox/
+	@mkdir -p "$(MACOS_DIR)"
+	@mkdir -p "$(RESOURCES)"
+	@cp "$(BUILD_DIR)/release/macos" "$(MACOS_DIR)/bin"
+	@echo 'APPL????' > "$(CONTENTS)/PkgInfo"
+	@rsync -a Sources/macos/Resources/ "$(RESOURCES)/"
+	@rsync -a --delete Sources/macos/sandbox/ "$(RESOURCES)/sandbox/"
 	@echo "App package created at $(APP_BUNDLE)"
 
 bundle: package
 	@echo "Creating app bundle..."
-	@cp Sources/macos/Info.plist $(CONTENTS)/Info.plist
+	@cp Sources/macos/Info.plist "$(CONTENTS)/Info.plist"
 	@echo "Signing app bundle (ad-hoc)..."
-	@codesign --force --options runtime --entitlements $(ENTITLEMENTS) --sign - $(APP_BUNDLE)
+	@codesign --force --options runtime --entitlements "$(ENTITLEMENTS)" --sign - "$(APP_BUNDLE)"
 	@echo "App bundle created at $(APP_BUNDLE)"
 
 run: package
-	@open $(MACOS_DIR)/bin
+	@open "$(MACOS_DIR)/bin"
 
 # Release build with Developer ID signing
 release-sign: build
 	@echo "Creating signed app bundle for distribution..."
-	@mkdir -p $(MACOS_DIR)
-	@mkdir -p $(RESOURCES)
-	@cp $(BUILD_DIR)/release/macos $(MACOS_DIR)/bin
-	@cp Sources/macos/Info.plist $(CONTENTS)/Info.plist
-	@echo 'APPL????' > $(CONTENTS)/PkgInfo
-	@rsync -a Sources/macos/Resources/ $(RESOURCES)/
-	@rsync -a --delete Sources/macos/sandbox/ $(RESOURCES)/sandbox/
+	@mkdir -p "$(MACOS_DIR)"
+	@mkdir -p "$(RESOURCES)"
+	@cp "$(BUILD_DIR)/release/macos" "$(MACOS_DIR)/bin"
+	@cp Sources/macos/Info.plist "$(CONTENTS)/Info.plist"
+	@echo 'APPL????' > "$(CONTENTS)/PkgInfo"
+	@rsync -a Sources/macos/Resources/ "$(RESOURCES)/"
+	@rsync -a --delete Sources/macos/sandbox/ "$(RESOURCES)/sandbox/"
 	@echo "Signing with Developer ID: $(DEVELOPER_ID)"
-	@codesign --force --options runtime --entitlements $(ENTITLEMENTS) --sign "$(DEVELOPER_ID)" $(APP_BUNDLE)
+	@codesign --force --options runtime --entitlements "$(ENTITLEMENTS)" --sign "$(DEVELOPER_ID)" "$(APP_BUNDLE)"
 	@echo "Verifying signature..."
-	@codesign --verify --verbose $(APP_BUNDLE)
+	@codesign --verify --verbose "$(APP_BUNDLE)"
 
 	@echo "Checking Gatekeeper (requires Developer ID cert for distribution)..."
-	-@spctl --assess --verbose --type execute $(APP_BUNDLE)
+	-@spctl --assess --verbose --type execute "$(APP_BUNDLE)"
 	@echo "Signed app bundle created at $(APP_BUNDLE)"
 
 # Pre-notarization checks (catches issues locally before slow upload)
 check: release-sign
 	@echo "Deep strict signature verification..."
-	@codesign --verify --deep --strict --verbose=2 $(APP_BUNDLE)
+	@codesign --verify --deep --strict --verbose=2 "$(APP_BUNDLE)"
 
 	@echo "Checking hardened runtime on all executables..."
-	@fail=0; find $(APP_BUNDLE) -type f -perm +111 | while read f; do \
+	@fail=0; find "$(APP_BUNDLE)" -type f -perm +111 | while read f; do \
 		if file "$$f" | grep -q 'Mach-O'; then \
 			if ! codesign -dvv "$$f" 2>&1 | grep -q 'flags=.*runtime'; then \
 				echo "ERROR: no hardened runtime: $$f"; \
@@ -91,20 +91,20 @@ check: release-sign
 # Notarize the app bundle (requires check first)
 notarize: check
 	@echo "Creating ZIP for notarization..."
-	@ditto -c -k --keepParent $(APP_BUNDLE) $(BUILD_DIR)/$(APP_NAME)-notarize.zip
+	@ditto -c -k --keepParent "$(APP_BUNDLE)" "$(BUILD_DIR)/$(APP_NAME)-notarize.zip"
 	@echo "Submitting to Apple for notarization..."
-	@xcrun notarytool submit $(BUILD_DIR)/$(APP_NAME)-notarize.zip \
+	@xcrun notarytool submit "$(BUILD_DIR)/$(APP_NAME)-notarize.zip" \
 		--keychain-profile "$(NOTARY_PROFILE)" \
 		--wait
 	@echo "Stapling notarization ticket..."
-	@xcrun stapler staple $(APP_BUNDLE)
-	@rm $(BUILD_DIR)/$(APP_NAME)-notarize.zip
+	@xcrun stapler staple "$(APP_BUNDLE)"
+	@rm "$(BUILD_DIR)/$(APP_NAME)-notarize.zip"
 	@echo "Notarization complete!"
 
 # Create DMG for distribution (after notarization)
 dmg: notarize
 	@echo "Creating DMG..."
-	@rm -f $(BUILD_DIR)/$(DMG_NAME)
+	@rm -f "$(BUILD_DIR)/$(DMG_NAME)"
 	@create-dmg \
 		--volname "$(APP_NAME)" \
 		--window-pos 200 120 \
@@ -114,8 +114,8 @@ dmg: notarize
 		--hide-extension "$(APP_NAME).app" \
 		--app-drop-link 450 190 \
 		--codesign "$(DEVELOPER_ID)" \
-		$(BUILD_DIR)/$(DMG_NAME) \
-		$(APP_BUNDLE)
+		"$(BUILD_DIR)/$(DMG_NAME)" \
+		"$(APP_BUNDLE)"
 	@echo "DMG created at $(BUILD_DIR)/$(DMG_NAME)"
 
 # Full release: sign, notarize, create DMG
@@ -126,5 +126,5 @@ release: dmg
 
 clean:
 	swift package clean
-	rm -rf $(APP_BUNDLE)
-	rm -f $(BUILD_DIR)/$(DMG_NAME)
+	rm -rf "$(APP_BUNDLE)"
+	rm -f "$(BUILD_DIR)/$(DMG_NAME)"

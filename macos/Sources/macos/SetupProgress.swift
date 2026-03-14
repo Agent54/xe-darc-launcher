@@ -201,6 +201,78 @@ func updateSetupProgress(status: String? = nil, progress: Double? = nil) {
     if let progress { _progressBar?.doubleValue = progress }
 }
 
+/// Possible user responses from the error dialog.
+enum SetupErrorAction {
+    case retry
+    case cancel
+}
+
+/// Show an error in the setup progress window with Retry and Cancel buttons.
+/// Blocks the calling thread until the user picks an action.
+/// Must be called from a **background** thread (uses a semaphore internally).
+func showSetupError(message: String) -> SetupErrorAction {
+    final class Box: @unchecked Sendable { var value: SetupErrorAction = .cancel }
+    let box = Box()
+    let sem = DispatchSemaphore(value: 0)
+    DispatchQueue.main.async {
+        _statusLabel?.stringValue = message
+        _statusLabel?.textColor = NSColor(calibratedRed: 1.0, green: 0.45, blue: 0.45, alpha: 1.0)
+
+        // Hide the progress bar while showing error
+        _progressBar?.isHidden = true
+
+        // Add retry + cancel buttons in a stack below the status label
+        guard let container = _statusLabel?.superview else { sem.signal(); return }
+
+        let retry = NSButton(title: "Retry", target: nil, action: nil)
+        retry.bezelStyle = .rounded
+        retry.tag = 1
+        retry.frame = NSRect(x: 0, y: 0, width: 80, height: 28)
+
+        let cancel = NSButton(title: "Cancel", target: nil, action: nil)
+        cancel.bezelStyle = .recessed
+        cancel.isBordered = true
+        cancel.contentTintColor = NSColor.white.withAlphaComponent(0.8)
+        cancel.tag = 2
+        cancel.frame = NSRect(x: 0, y: 0, width: 80, height: 28)
+
+        let stack = NSStackView(views: [retry, cancel])
+        stack.orientation = .horizontal
+        stack.spacing = 12
+        stack.alignment = .centerY
+        // Position the stack where the progress bar was
+        let barFrame = _progressBar?.frame ?? NSRect(x: 40, y: 55, width: 340, height: 28)
+        stack.frame = NSRect(x: barFrame.origin.x, y: barFrame.origin.y - 5, width: barFrame.width, height: 28)
+        container.addSubview(stack)
+
+        retry.target = SetupErrorHelper.shared
+        retry.action = #selector(SetupErrorHelper.buttonClicked(_:))
+        cancel.target = SetupErrorHelper.shared
+        cancel.action = #selector(SetupErrorHelper.buttonClicked(_:))
+
+        SetupErrorHelper.shared.callback = { tag in
+            box.value = tag == 1 ? .retry : .cancel
+            // Remove error UI
+            stack.removeFromSuperview()
+            _progressBar?.isHidden = false
+            _statusLabel?.textColor = NSColor.white.withAlphaComponent(0.6)
+            sem.signal()
+        }
+    }
+    sem.wait()
+    return box.value
+}
+
+@MainActor
+private class SetupErrorHelper: NSObject {
+    static let shared = SetupErrorHelper()
+    var callback: ((Int) -> Void)?
+    @objc func buttonClicked(_ sender: NSButton) {
+        callback?(sender.tag)
+        callback = nil
+    }
+}
+
 /// Close the setup progress window. Call from main thread.
 @MainActor
 func closeSetupProgress() {
