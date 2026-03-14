@@ -399,11 +399,16 @@ extension ExternalState {
         proc.waitUntilExit()
 
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        guard let output = String(data: data, encoding: .utf8) else { return [] }
+        guard let output = String(data: data, encoding: .utf8) else {
+            appendLog("launcher", "findZombieProcesses: failed to decode ps output")
+            return []
+        }
 
         // Our own managed PIDs
         let ownBrowserPid = _browserPid
         let ownDarcPid = darcAppRef?.processIdentifier ?? -1
+        let ownPid = ProcessInfo.processInfo.processIdentifier
+        appendLog("launcher", "findZombieProcesses: ownBrowserPid=\(ownBrowserPid), ownDarcPid=\(ownDarcPid), ownPid=\(ownPid)")
 
         var zombies: [ZombieProcess] = []
 
@@ -413,13 +418,18 @@ extension ExternalState {
             guard let pid = Int32(trimmed[trimmed.startIndex..<spaceIdx]) else { continue }
             let comm = String(trimmed[trimmed.index(after: spaceIdx)...]).trimmingCharacters(in: .whitespaces)
 
+            // Log any processes that look related to Chrome/Helium/Darc
+            if comm.contains("Helium") || comm.contains("app_mode_loader") || comm.contains("Darc") {
+                appendLog("launcher", "findZombieProcesses: candidate pid=\(pid) comm='\(comm)'")
+            }
+
             let isHelium = comm.hasSuffix("/Helium") || comm == "Helium"
             let isDarc = comm.hasSuffix("/app_mode_loader") || comm == "app_mode_loader"
 
             guard isHelium || isDarc else { continue }
             guard pid != ownBrowserPid && pid != ownDarcPid else { continue }
             // Don't include our own launcher process
-            guard pid != ProcessInfo.processInfo.processIdentifier else { continue }
+            guard pid != ownPid else { continue }
 
             // Try to get command-line args to extract --user-data-dir
             let profileDir = Self.extractUserDataDir(pid: pid)
