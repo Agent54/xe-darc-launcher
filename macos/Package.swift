@@ -22,6 +22,7 @@ let package = Package(
             ],
             resources: [
                 .copy("Resources/Preferences.json"),
+                .copy("Resources/Local State"),
                 .copy("Resources/sources.json")
             ]
         )

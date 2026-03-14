@@ -803,6 +803,14 @@ final class ExternalState: @unchecked Sendable {
             } else {
                 appendLog("launcher", "Created empty profile '\(sanitized)' (no Preferences.json in bundle)")
             }
+
+            // Copy base Local State into the profile root if available
+            if let localStateURL = Bundle.main.resourceURL?.appendingPathComponent("Local State"),
+               fm.fileExists(atPath: localStateURL.path) {
+                let destLocalState = profilePath.appendingPathComponent("Local State")
+                try fm.copyItem(at: localStateURL, to: destLocalState)
+                appendLog("launcher", "Copied Local State to profile '\(sanitized)'")
+            }
             updateChromeProfiles()
             return nil
         } catch {

@@ -200,6 +200,19 @@ extension ExternalState {
                 }
             }
 
+            // Copy Local State over the profile's Local State
+            if let bundleLocalState = Bundle.main.resourceURL?.appendingPathComponent("Local State"),
+               fm.fileExists(atPath: bundleLocalState.path) {
+                let destLocalState = profileDir.appendingPathComponent("Local State")
+                try? fm.removeItem(at: destLocalState)
+                do {
+                    try fm.copyItem(at: bundleLocalState, to: destLocalState)
+                    self.appendLog("launcher", "Copied Local State to \(destLocalState.path)")
+                } catch {
+                    self.appendLog("launcher", "Failed to copy Local State: \(error.localizedDescription)")
+                }
+            }
+
             // Restart Chrome
             self.appendLog("launcher", "Restarting Chrome and Darc after shim provisioning...")
             let err = self.startDarc()
