@@ -105,7 +105,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func setupMainMenu() {
         let mainMenu = NSMenu()
         let editMenu = NSMenu(title: "Edit")
+        editMenu.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
         editMenu.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        editMenu.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
         editMenu.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
         let editItem = NSMenuItem(title: "Edit", action: nil, keyEquivalent: "")
         editItem.submenu = editMenu
@@ -237,6 +239,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var activeProfileItem: NSMenuItem?
     private var lastProfileList: [String] = []
     private var lastSelectedProfile: String = ""
+    private var darcOverrideItem: NSMenuItem?
+    private var darcOverrideSeparator: NSMenuItem?
 
     private func rebuildProfileItems() {
         guard let menu = statusItem?.menu else { return }
@@ -266,11 +270,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         darcItem = nil; darcStartItem = nil; darcStopItem = nil
         chromeItem = nil; chromeStartItem = nil; chromeStopItem = nil
         chromeHeadlessItem = nil; chromeSubmenu = nil
+        darcOverrideItem = nil; darcOverrideSeparator = nil
 
         var insertIdx = profileInsertionIndex
         for name in profiles {
             let isActive = (name == selected)
-            let profileItem = NSMenuItem(title: name, action: nil, keyEquivalent: "")
+            let hasOverride = state.darcOverrideURL(forProfile: name) != nil
+            let profileTitle = hasOverride ? "\(name) (dev proxy)" : name
+            let profileItem = NSMenuItem(title: profileTitle, action: nil, keyEquivalent: "")
             let profileSubmenu = NSMenu()
             profileSubmenu.autoenablesItems = false
 
@@ -292,6 +299,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             dStart.isEnabled = isActive; dStop.isEnabled = isActive
             darcMenu.addItem(dStart)
             darcMenu.addItem(dStop)
+
+            if isActive {
+                // "Override URL..." item — hidden by default, shown when Option is held
+                let overrideSep = NSMenuItem.separator()
+                overrideSep.isHidden = true
+                darcMenu.addItem(overrideSep)
+
+                let currentOverride = state.darcOverrideURL(forProfile: name)
+                let overrideTitle = currentOverride != nil ? "Override URL (\(currentOverride!))..." : "Override URL..."
+                let overrideItem = NSMenuItem(title: overrideTitle, action: #selector(darcOverrideURLAction), keyEquivalent: "")
+                overrideItem.target = self
+                overrideItem.isHidden = true
+                darcMenu.addItem(overrideItem)
+
+                darcOverrideSeparator = overrideSep
+                darcOverrideItem = overrideItem
+            }
+
             darcSub.submenu = darcMenu
             profileSubmenu.addItem(darcSub)
 
@@ -442,6 +467,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 if optionHeld != self.lastOptionKeyState {
                     self.lastOptionKeyState = optionHeld
                     self.refreshChromeMenuOptions(in: chromeSubmenu)
+                    self.darcOverrideItem?.isHidden = !optionHeld
+                    self.darcOverrideSeparator?.isHidden = !optionHeld
                     chromeSubmenu.update()
                 }
             }
@@ -481,15 +508,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // 🟢 = both darc + chrome running, 🔵 = chrome only, ⏳ = pending
         if let activeProfileItem {
             let name = state.selectedProfileName()
+            let hasOverride = state.darcOverrideURL(forProfile: name) != nil
+            let baseName = hasOverride ? "\(name) (dev proxy)" : name
             let anyPending = pendingServices.contains("chrome") || pendingServices.contains("darc")
             if anyPending {
-                activeProfileItem.title = "\(name) ⏳"
+                activeProfileItem.title = "\(baseName) ⏳"
             } else if state.chromeRunning && state.darcRunning {
-                activeProfileItem.title = "\(name) 🟢"
+                activeProfileItem.title = "\(baseName) 🟢"
             } else if state.chromeRunning {
-                activeProfileItem.title = "\(name) 🔵"
+                activeProfileItem.title = "\(baseName) 🔵"
             } else {
-                activeProfileItem.title = name
+                activeProfileItem.title = baseName
             }
         }
 
@@ -572,6 +601,113 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func darcRestoreWindowPositionsAction() {
         DispatchQueue.global(qos: .userInitiated).async {
             ExternalState.shared.restoreDarcWindowPositions()
+        }
+    }
+
+    @objc private func darcOverrideURLAction() {
+        let state = ExternalState.shared
+        let profileName = state.selectedProfileName()
+        let currentURL = state.darcOverrideURL(forProfile: profileName) ?? ""
+
+        let alert = NSAlert()
+        alert.messageText = "Override Darc URL"
+        alert.informativeText = "Enter the base URL for the Darc IWA.\nLeave empty to use the default local bundle.\nThe URL will be validated by checking /.well-known/manifest.webmanifest"
+        alert.addButton(withTitle: "OK")
+        alert.addButton(withTitle: "Clear")
+        alert.addButton(withTitle: "Cancel")
+
+        // Wrap text field in a container with padding to avoid focus ring clipping
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 32))
+        let input = NSTextField(frame: NSRect(x: 4, y: 4, width: 392, height: 24))
+        input.placeholderString = "https://localhost:5194"
+        input.stringValue = currentURL.isEmpty ? "https://localhost:5194" : currentURL
+        container.addSubview(input)
+        alert.accessoryView = container
+
+        NSApp.activate(ignoringOtherApps: true)
+        alert.window.makeFirstResponder(input)
+        let response = alert.runModal()
+
+        // Cancel (third button)
+        guard response != .alertThirdButtonReturn else { return }
+
+        // Clear (second button) — remove the override
+        if response == .alertSecondButtonReturn {
+            state.setDarcOverrideURL(forProfile: profileName, url: nil)
+            lastProfileList = [] // Force menu rebuild
+            renderMenuLabels()
+            return
+        }
+
+        let url = input.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // If empty, clear the override
+        if url.isEmpty {
+            state.setDarcOverrideURL(forProfile: profileName, url: nil)
+            lastProfileList = [] // Force menu rebuild
+            renderMenuLabels()
+            return
+        }
+
+        // Validate URL format
+        guard url.hasPrefix("http://") || url.hasPrefix("https://") else {
+            let err = NSAlert()
+            err.messageText = "Invalid URL"
+            err.informativeText = "URL must start with http:// or https://"
+            err.alertStyle = .warning
+            err.runModal()
+            return
+        }
+
+        // Validate by checking manifest endpoint
+        let manifestURL = url.hasSuffix("/")
+            ? "\(url).well-known/manifest.webmanifest"
+            : "\(url)/.well-known/manifest.webmanifest"
+
+        guard let requestURL = URL(string: manifestURL) else {
+            let err = NSAlert()
+            err.messageText = "Invalid URL"
+            err.informativeText = "Could not parse URL: \(manifestURL)"
+            err.alertStyle = .warning
+            err.runModal()
+            return
+        }
+
+        // Perform HEAD request asynchronously, ignoring certificate errors for dev servers
+        var request = URLRequest(url: requestURL)
+        request.httpMethod = "HEAD"
+        request.timeoutInterval = 10
+
+        Task {
+            do {
+                let session = URLSession(configuration: .ephemeral, delegate: InsecureURLSessionDelegate(), delegateQueue: nil)
+                let (_, response) = try await session.data(for: request)
+                let httpResponse = response as? HTTPURLResponse
+                await MainActor.run {
+                    guard let status = httpResponse?.statusCode, (200..<300).contains(status) else {
+                        let statusCode = httpResponse?.statusCode ?? 0
+                        let err = NSAlert()
+                        err.messageText = "Validation Failed"
+                        err.informativeText = "HEAD \(manifestURL) returned status \(statusCode)"
+                        err.alertStyle = .warning
+                        err.runModal()
+                        return
+                    }
+
+                    // Validation passed — save the override
+                    state.setDarcOverrideURL(forProfile: profileName, url: url)
+                    self.lastProfileList = [] // Force menu rebuild to update title
+                    self.renderMenuLabels()
+                }
+            } catch {
+                await MainActor.run {
+                    let err = NSAlert()
+                    err.messageText = "Validation Failed"
+                    err.informativeText = "Could not reach \(manifestURL):\n\(error.localizedDescription)"
+                    err.alertStyle = .warning
+                    err.runModal()
+                }
+            }
         }
     }
 
@@ -708,5 +844,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func stopStateRefreshLoop() {
         stateRefreshTimer?.invalidate()
         stateRefreshTimer = nil
+    }
+}
+
+// MARK: - Insecure URL session delegate for dev server certificate validation
+
+private final class InsecureURLSessionDelegate: NSObject, URLSessionDelegate, @unchecked Sendable {
+    func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge, completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
+        if challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
+           let trust = challenge.protectionSpace.serverTrust {
+            completionHandler(.useCredential, URLCredential(trust: trust))
+        } else {
+            completionHandler(.performDefaultHandling, nil)
+        }
     }
 }

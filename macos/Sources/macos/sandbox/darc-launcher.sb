@@ -76,6 +76,10 @@
 (allow network-outbound (local unix-socket))
 (allow network-inbound (local unix-socket))
 
+;; --- TCP network for dev server URL validation ---
+(allow network-outbound (local tcp))
+(allow network-inbound (local tcp))
+
 ;; --- System info colima needs ---
 ;; Colima/Go runtime needs system information
 (allow sysctl-read)

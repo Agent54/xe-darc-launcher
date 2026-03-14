@@ -391,7 +391,9 @@ final class ExternalState: @unchecked Sendable {
         if !chromeRunning, let err = startChrome() { return err }
 
         let profileName = selectedProfileName()
-        let appURL = Self.appDataURL.appendingPathComponent("shims/\(profileName)/Darc.app")
+        let isDevProxy = darcOverrideURL(forProfile: profileName) != nil
+        let shimAppName = isDevProxy ? "Darc Dev.app" : "Darc.app"
+        let appURL = Self.appDataURL.appendingPathComponent("shims/\(profileName)/\(shimAppName)")
         let loader = appURL.appendingPathComponent("Contents/MacOS/app_mode_loader").path
         guard FileManager.default.isExecutableFile(atPath: loader) else {
             let msg = "Darc loader not found at \(loader)"
@@ -767,6 +769,37 @@ final class ExternalState: @unchecked Sendable {
             kill(_browserPid, SIGTERM)
             _browserPid = 0
         }
+    }
+
+    // MARK: - Per-profile overrides
+
+    /// Returns the override URL for the given profile's Darc IWA, or nil if not set.
+    func darcOverrideURL(forProfile profileName: String) -> String? {
+        guard let overrides = settings.rawData?["overrides"] as? [String: Any],
+              let profileOverrides = overrides[profileName] as? [String: Any],
+              let darc = profileOverrides["darc"] as? [String: Any],
+              let url = darc["url"] as? String, !url.isEmpty else { return nil }
+        return url
+    }
+
+    /// Sets or clears the override URL for the given profile's Darc IWA.
+    func setDarcOverrideURL(forProfile profileName: String, url: String?) {
+        var dict = settings.rawData ?? [:]
+        var overrides = dict["overrides"] as? [String: Any] ?? [:]
+        var profileOverrides = overrides[profileName] as? [String: Any] ?? [:]
+        var darc = profileOverrides["darc"] as? [String: Any] ?? [:]
+
+        if let url, !url.isEmpty {
+            darc["url"] = url
+        } else {
+            darc.removeValue(forKey: "url")
+        }
+
+        profileOverrides["darc"] = darc.isEmpty ? nil : darc
+        overrides[profileName] = profileOverrides.isEmpty ? nil : profileOverrides
+        dict["overrides"] = overrides.isEmpty ? nil : overrides
+        settings = Settings(rawData: dict)
+        saveSettings()
     }
 
     /// Returns the currently selected profile name, defaulting to "default".

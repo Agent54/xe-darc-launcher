@@ -64,10 +64,21 @@ extension ExternalState {
         ] + Self.chromeFlags
         if boolSetting("chrome_headless", default: false) { args.append("--headless=new") }
 
-        // Install the IWA bundle if it exists
-        let iwaPath = Self.appDataURL.appendingPathComponent("darc.swbn").path
-        if FileManager.default.fileExists(atPath: iwaPath) {
-            args.append("--install-isolated-web-app-from-file=\(iwaPath)")
+        // Install the IWA: use override URL if set for this profile, otherwise use local file.
+        // --install-isolated-web-app-from-url is only needed for the initial install (shim not yet present).
+        let isDevProxy = darcOverrideURL(forProfile: profileName) != nil
+        let shimDir = Self.appDataURL.appendingPathComponent("shims/\(profileName)", isDirectory: true)
+        let devShimExists = FileManager.default.fileExists(atPath: shimDir.appendingPathComponent("Darc Dev.app").path)
+
+        if let overrideURL = darcOverrideURL(forProfile: profileName),
+           (overrideURL.hasPrefix("http://") || overrideURL.hasPrefix("https://")),
+           !devShimExists {
+            args.append("--install-isolated-web-app-from-url=\(overrideURL)")
+        } else if !isDevProxy {
+            let iwaPath = Self.appDataURL.appendingPathComponent("darc.swbn").path
+            if FileManager.default.fileExists(atPath: iwaPath) {
+                args.append("--install-isolated-web-app-from-file=\(iwaPath)")
+            }
         }
 
         // Create pipe pairs for Chrome DevTools Protocol pipe transport.
@@ -96,8 +107,8 @@ extension ExternalState {
             print("[ExternalState] Chrome started, isRunning=\(chromeRunning)")
 
             // Check if app shim needs provisioning (in parallel)
-            let shimDir = Self.appDataURL.appendingPathComponent("shims/\(profileName)", isDirectory: true)
-            let shimApp = shimDir.appendingPathComponent("Darc.app")
+            let shimAppName = isDevProxy ? "Darc Dev.app" : "Darc.app"
+            let shimApp = shimDir.appendingPathComponent(shimAppName)
             if !FileManager.default.fileExists(atPath: shimApp.path) {
                 provisionAppShim(profileName: profileName, profileDir: profileDir, shimApp: shimApp, chrome: chrome)
             }
