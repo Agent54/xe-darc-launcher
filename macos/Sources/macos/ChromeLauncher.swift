@@ -126,7 +126,8 @@ extension ExternalState {
         DispatchQueue.global().async { [weak self] in
             guard let self else { return }
             let fm = FileManager.default
-            let systemShimPath = NSHomeDirectory() + "/Applications/Chromium Apps.localized/Darc.app"
+            let appsFolder = chrome.variant == "canary" ? "Chrome Canary Apps.localized" : "Chromium Apps.localized"
+            let systemShimPath = NSHomeDirectory() + "/Applications/\(appsFolder)/Darc.app"
             let shimCodeSignature = systemShimPath + "/Contents/_CodeSignature"
 
             self.appendLog("launcher", "Waiting for app shim at \(systemShimPath)...")
@@ -175,7 +176,7 @@ extension ExternalState {
             // Close any Finder windows showing the Helium/Chromium Apps folder
             // Uses AXUIElement Accessibility API directly (requires Accessibility permission only)
             Thread.sleep(forTimeInterval: 2.0)
-            self.closeFinderWindowsContaining(["Helium Apps", "Chromium Apps"])
+            self.closeFinderWindowsContaining(["Helium Apps", "Chromium Apps", "Chrome Canary Apps"])
 
             // Stop Chrome
             self.appendLog("launcher", "Stopping Chrome for Preferences.json refresh...")
