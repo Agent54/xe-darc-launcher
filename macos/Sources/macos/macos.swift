@@ -29,6 +29,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let logPanelController = LogPanelController()
     private var stateRefreshTimer: Timer?
     private var specialKeyCheck: Any?
+    private var optionKeyTimer: Timer?
+    private var lastOptionKeyState: Bool = false
+    private var chromeVariantsScanned: Bool = false
 
     // Track which services have a pending operation (shows ⏳)
     private var pendingServices: Set<String> = []
@@ -131,13 +134,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(NSMenuItem(title: "Status: Ready", action: nil, keyEquivalent: ""))
         menu.addItem(.separator())
 
+        // Profile entries are inserted dynamically between here and the New Profile item
+        profileInsertionIndex = menu.numberOfItems
+        rebuildProfileItems()
+
         let newProfileItem = NSMenuItem(title: "New Profile...", action: #selector(newProfileAction), keyEquivalent: "")
         newProfileItem.target = self
         menu.addItem(newProfileItem)
-
-        // Profile entries are inserted dynamically between here and the Legacy VM separator
-        profileInsertionIndex = menu.numberOfItems
-        rebuildProfileItems()
 
         menu.addItem(.separator())
         legacyVMItem = buildSubmenu(parent: menu, title: "Legacy VM", startSelector: #selector(legacyVMStartAction), stopSelector: #selector(legacyVMStopAction), startRef: &legacyVMStartItem, stopRef: &legacyVMStopItem)
@@ -145,9 +148,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         appVMItem = buildSubmenu(parent: menu, title: "App VM", startSelector: #selector(appVMStartAction), stopSelector: #selector(appVMStopAction), startRef: &appVMStartItem, stopRef: &appVMStopItem)
 
         menu.addItem(.separator())
-        menu.addItem(NSMenuItem(title: "System Logs", action: #selector(showLogsAction), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "Save Window Positions", action: #selector(darcSaveWindowPositionsAction), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "Restore Window Positions", action: #selector(darcRestoreWindowPositionsAction), keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: "System Logs", action: #selector(showLogsAction), keyEquivalent: ""))
         menu.addItem(.separator())
 
         runAtStartupItem = NSMenuItem(title: "Run at Startup", action: #selector(runAtStartupAction), keyEquivalent: "")
@@ -195,9 +198,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let minVersion = 145
         let showVariants = NSEvent.modifierFlags.contains(.option)
 
-        // Only scan all Chrome variants when Option key is held
-        if showVariants {
+        // Only scan all Chrome variants once when Option key is first pressed
+        if showVariants && !chromeVariantsScanned {
             state.refreshChromeAvailability(scanAll: true)
+            chromeVariantsScanned = true
         }
         let selected = state.selectedChrome()
 
@@ -231,9 +235,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var profileInsertionIndex: Int = 0
     private var profileMenuItems: [NSMenuItem] = []
     private var activeProfileItem: NSMenuItem?
+    private var lastProfileList: [String] = []
+    private var lastSelectedProfile: String = ""
 
     private func rebuildProfileItems() {
         guard let menu = statusItem?.menu else { return }
+
+        let state = ExternalState.shared
+        let selected = state.selectedProfileName()
+        var profiles = state.chromeProfiles.map(\.name)
+
+        // Always show "default" even if the folder doesn't exist yet
+        if !profiles.contains("default") {
+            profiles.insert("default", at: 0)
+        }
+
+        // Skip full rebuild if profile list and selection haven't changed
+        if profiles == lastProfileList && selected == lastSelectedProfile && !profileMenuItems.isEmpty {
+            return
+        }
+        lastProfileList = profiles
+        lastSelectedProfile = selected
 
         // Remove old profile items
         for old in profileMenuItems { menu.removeItem(old) }
@@ -244,15 +266,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         darcItem = nil; darcStartItem = nil; darcStopItem = nil
         chromeItem = nil; chromeStartItem = nil; chromeStopItem = nil
         chromeHeadlessItem = nil; chromeSubmenu = nil
-
-        let state = ExternalState.shared
-        let selected = state.selectedProfileName()
-        var profiles = state.chromeProfiles.map(\.name)
-
-        // Always show "default" even if the folder doesn't exist yet
-        if !profiles.contains("default") {
-            profiles.insert("default", at: 0)
-        }
 
         var insertIdx = profileInsertionIndex
         for name in profiles {
@@ -313,8 +326,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 chromeStopItem = cStop
                 chromeHeadlessItem = cHeadless
                 chromeSubmenu = chromeMenu
-                // Refresh chrome variant options in the active profile's chrome submenu
-                refreshChromeMenuOptions(in: chromeMenu)
             }
         }
     }
@@ -421,14 +432,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         startStateRefreshLoop()
         // Monitor Option key press/release while menu is open to toggle variant items.
-        // NSMenu runs its own event tracking loop so addLocalMonitor won't fire;
-        // addGlobalMonitor catches modifier changes during menu tracking.
-        specialKeyCheck = NSEvent.addGlobalMonitorForEvents(matching: .flagsChanged) { [weak self] _ in
+        // NSMenu runs its own event tracking loop so neither addLocalMonitor nor
+        // addGlobalMonitor reliably fires during nested submenu tracking.
+        // Use a polling timer instead.
+        let timer = Timer(timeInterval: 0.15, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self, let chromeSubmenu = self.chromeSubmenu else { return }
-                self.refreshChromeMenuOptions(in: chromeSubmenu)
+                let optionHeld = NSEvent.modifierFlags.contains(.option)
+                if optionHeld != self.lastOptionKeyState {
+                    self.lastOptionKeyState = optionHeld
+                    self.refreshChromeMenuOptions(in: chromeSubmenu)
+                    chromeSubmenu.update()
+                }
             }
         }
+        // Add to both common and event tracking run loop modes so it fires during menu tracking
+        RunLoop.main.add(timer, forMode: .common)
+        RunLoop.main.add(timer, forMode: .eventTracking)
+        optionKeyTimer = timer
     }
 
     func menuDidClose(_ menu: NSMenu) {
@@ -437,6 +458,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             NSEvent.removeMonitor(specialKeyCheck)
             self.specialKeyCheck = nil
         }
+        optionKeyTimer?.invalidate()
+        optionKeyTimer = nil
+        lastOptionKeyState = false
+        chromeVariantsScanned = false
     }
 
     // MARK: - Render (reads cached state only, no I/O)
@@ -453,14 +478,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         rebuildProfileItems()
 
         // Update active profile title with status indicator
+        // 🟢 = both darc + chrome running, 🔵 = chrome only, ⏳ = pending
         if let activeProfileItem {
             let name = state.selectedProfileName()
-            let anyRunning = state.chromeRunning || state.darcRunning
             let anyPending = pendingServices.contains("chrome") || pendingServices.contains("darc")
             if anyPending {
                 activeProfileItem.title = "\(name) ⏳"
-            } else if anyRunning {
+            } else if state.chromeRunning && state.darcRunning {
                 activeProfileItem.title = "\(name) 🟢"
+            } else if state.chromeRunning {
+                activeProfileItem.title = "\(name) 🔵"
             } else {
                 activeProfileItem.title = name
             }
@@ -468,7 +495,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         // Update titles and enable states for active profile items
         darcItem?.title = serviceTitle("Darc", key: "darc", running: state.darcRunning)
-        chromeItem?.title = serviceTitle("Chrome Engine", key: "chrome", running: state.chromeRunning)
+        let chromeName = state.selectedChrome()?.name ?? "Chrome Engine"
+        chromeItem?.title = serviceTitle(chromeName, key: "chrome", running: state.chromeRunning)
 
         let darcPending = pendingServices.contains("darc")
         let chromePending = pendingServices.contains("chrome")
@@ -478,6 +506,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         chromeStartItem?.isEnabled = !state.chromeRunning && !chromePending
         chromeStopItem?.isEnabled = state.chromeRunning && !chromePending
         chromeHeadlessItem?.state = state.boolSetting("chrome_headless", default: false) ? .on : .off
+
+        // Refresh chrome variant options (only adds items when Option key is held)
+        if let chromeSubmenu {
+            refreshChromeMenuOptions(in: chromeSubmenu)
+        }
 
         // VM items
         legacyVMItem?.title = serviceTitle("Legacy VM", key: "legacyVM", running: state.legacyVMRunning)
