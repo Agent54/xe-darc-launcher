@@ -31,6 +31,7 @@ nonisolated(unsafe) private var _setupWindow: NSPanel?
 nonisolated(unsafe) private var _progressBar: NSProgressIndicator?
 nonisolated(unsafe) private var _titleLabel: NSTextField?
 nonisolated(unsafe) private var _statusLabel: NSTextField?
+nonisolated(unsafe) private var _cancelButton: NSButton?
 private let _cancellation = CancellationToken()
 
 /// The shared cancellation token for the current setup. Check `isCancelled` from any thread.
@@ -78,7 +79,7 @@ func showSetupProgress(message: String) {
     panel.isMovableByWindowBackground = true
     panel.backgroundColor = .clear
     panel.isOpaque = false
-    panel.level = .normal
+    panel.level = .floating
     panel.center()
     panel.isReleasedWhenClosed = false
     panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
@@ -168,6 +169,7 @@ func showSetupProgress(message: String) {
     cancelButton.contentTintColor = NSColor.white.withAlphaComponent(0.8)
     cancelButton.refusesFirstResponder = true
     vfx.addSubview(cancelButton)
+    _cancelButton = cancelButton
 
     // Set the app icon for Dock display
     if let icon = loadAppIcon() {
@@ -221,39 +223,41 @@ func showSetupError(message: String) -> SetupErrorAction {
         // Hide the progress bar while showing error
         _progressBar?.isHidden = true
 
-        // Add retry + cancel buttons in a stack below the status label
-        guard let container = _statusLabel?.superview else { sem.signal(); return }
+        guard let cancelBtn = _cancelButton, let container = cancelBtn.superview else { sem.signal(); return }
 
+        // Add a Retry button to the left of the existing Cancel button
         let retry = NSButton(title: "Retry", target: nil, action: nil)
         retry.bezelStyle = .rounded
         retry.tag = 1
         retry.frame = NSRect(x: 0, y: 0, width: 80, height: 28)
+        container.addSubview(retry)
 
-        let cancel = NSButton(title: "Cancel", target: nil, action: nil)
-        cancel.bezelStyle = .recessed
-        cancel.isBordered = true
-        cancel.contentTintColor = NSColor.white.withAlphaComponent(0.8)
-        cancel.tag = 2
-        cancel.frame = NSRect(x: 0, y: 0, width: 80, height: 28)
+        // Reposition: center both buttons side by side
+        let spacing: CGFloat = 12
+        let totalWidth = retry.frame.width + spacing + cancelBtn.frame.width
+        let containerWidth = container.frame.width
+        let startX = (containerWidth - totalWidth) / 2
+        let y = cancelBtn.frame.origin.y
 
-        let stack = NSStackView(views: [retry, cancel])
-        stack.orientation = .horizontal
-        stack.spacing = 12
-        stack.alignment = .centerY
-        // Position the stack where the progress bar was
-        let barFrame = _progressBar?.frame ?? NSRect(x: 40, y: 55, width: 340, height: 28)
-        stack.frame = NSRect(x: barFrame.origin.x, y: barFrame.origin.y - 5, width: barFrame.width, height: 28)
-        container.addSubview(stack)
+        retry.frame = NSRect(x: startX, y: y, width: 80, height: 28)
+        cancelBtn.frame = NSRect(x: startX + 80 + spacing, y: y, width: 80, height: 28)
+
+        // Wire up the cancel button for error handling too
+        cancelBtn.tag = 2
+        cancelBtn.target = SetupErrorHelper.shared
+        cancelBtn.action = #selector(SetupErrorHelper.buttonClicked(_:))
 
         retry.target = SetupErrorHelper.shared
         retry.action = #selector(SetupErrorHelper.buttonClicked(_:))
-        cancel.target = SetupErrorHelper.shared
-        cancel.action = #selector(SetupErrorHelper.buttonClicked(_:))
 
         SetupErrorHelper.shared.callback = { tag in
             box.value = tag == 1 ? .retry : .cancel
-            // Remove error UI
-            stack.removeFromSuperview()
+            // Remove retry button, restore cancel button
+            retry.removeFromSuperview()
+            cancelBtn.frame = NSRect(x: (containerWidth - 80) / 2, y: y, width: 80, height: 28)
+            cancelBtn.target = SetupCancelHelper.shared
+            cancelBtn.action = #selector(SetupCancelHelper.cancelSetup)
+            cancelBtn.tag = 0
             _progressBar?.isHidden = false
             _statusLabel?.textColor = NSColor.white.withAlphaComponent(0.6)
             sem.signal()
@@ -281,6 +285,7 @@ func closeSetupProgress() {
     _progressBar = nil
     _titleLabel = nil
     _statusLabel = nil
+    _cancelButton = nil
     // Restore accessory (no Dock icon) mode
     NSApp.setActivationPolicy(.accessory)
 }
@@ -298,8 +303,7 @@ private class ClickablePathLabel: NSTextField {
 
     override func mouseDown(with event: NSEvent) {
         guard !folderPath.isEmpty else { return }
-        let url = URL(fileURLWithPath: folderPath)
-        NSWorkspace.shared.activateFileViewerSelecting([url])
+        NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: folderPath)
     }
 }
 
