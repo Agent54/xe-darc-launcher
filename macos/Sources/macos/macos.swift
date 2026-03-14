@@ -466,7 +466,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         appVMStartItem?.isEnabled = !state.appVMRunning && !appPending
         appVMStopItem?.isEnabled = state.appVMRunning && !appPending
 
-        chromeHeadlessItem?.state = state.boolSetting("chrome_headless", default: true) ? .on : .off
+        chromeHeadlessItem?.state = state.boolSetting("chrome_headless", default: false) ? .on : .off
         runAtStartupItem?.state = state.boolSetting("run_at_startup", default: false) ? .on : .off
         bindCapslockItem?.state = state.boolSetting("bind_capslock", default: false) ? .on : .off
 
@@ -534,7 +534,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc private func chromeHeadlessAction() {
-        let current = ExternalState.shared.boolSetting("chrome_headless", default: true)
+        let current = ExternalState.shared.boolSetting("chrome_headless", default: false)
         let next = !current
         ExternalState.shared.setBoolSetting("chrome_headless", next)
 

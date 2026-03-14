@@ -62,7 +62,7 @@ extension ExternalState {
             "--user-data-dir=\(profileDir.path)",
             "--remote-debugging-pipe"
         ] + Self.chromeFlags
-        if boolSetting("chrome_headless", default: true) { args.append("--headless=new") }
+        if boolSetting("chrome_headless", default: false) { args.append("--headless=new") }
 
         // Install the IWA bundle if it exists
         let iwaPath = Self.appDataURL.appendingPathComponent("darc.swbn").path
